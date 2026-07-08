@@ -1,0 +1,6 @@
+{
+  "name": "MindStream",
+  "description": "An intelligent student productivity dashboard featuring calendars, exam checklists, task planners, Pomodoro focus timers, and a server-side AI Study Assistant powered by Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

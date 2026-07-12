@@ -50,6 +50,11 @@ import { INITIAL_TASKS, INITIAL_EVENTS, INITIAL_CHAT, IMAGES } from './data';
 import { Task, CalendarEvent, ChatMessage, Priority, TaskStatus, ChatConversation } from './types';
 import { useAuth } from './context/AuthContext';
 import { supabase } from './lib/supabase';
+import {
+  createConversation,
+  saveMessage,
+  getConversationMessages
+} from "./lib/ai";
 
 // Generate a secure, valid RFC4122 v4 UUID for database compatibility
 const generateUuid = () => {
@@ -76,16 +81,16 @@ const getLocalDateString = (d: Date = new Date()) => {
 export default function App() {
   // Supabase Auth Integration hook
   const {
-    user: supabaseUser,
-    profile: authProfile,
-    loading: authLoading,
-    signUp: supabaseSignUp,
-    signIn: supabaseSignIn,
-    signInWithGoogle: supabaseSignInWithGoogle,
-    signOut: supabaseSignOut,
-    resetPassword: supabaseResetPassword,
-    updateProfile: supabaseUpdateProfile
-  } = useAuth();
+  user,
+  profile: authProfile,
+  loading: authLoading,
+  signUp: supabaseSignUp,
+  signIn: supabaseSignIn,
+  signInWithGoogle: supabaseSignInWithGoogle,
+  signOut: supabaseSignOut,
+  resetPassword: supabaseResetPassword,
+  updateProfile: supabaseUpdateProfile
+} = useAuth();
 
   // User Authentication State
   const [currentUser, setCurrentUser] = useState<{
@@ -101,7 +106,7 @@ export default function App() {
   // Sync Supabase Auth profile with application states
   useEffect(() => {
     if (!authLoading) {
-      if (supabaseUser && authProfile) {
+      if (user && authProfile) {
         setCurrentUser(authProfile);
         if (currentScreen === 'onboarding' || currentScreen === 'login' || currentScreen === 'register') {
           setCurrentScreen('preloader');
@@ -116,7 +121,7 @@ export default function App() {
         }
       }
     }
-  }, [supabaseUser, authProfile, authLoading]);
+  }, [user, authProfile, authLoading]);
 
   // Auth processing status for UI feedback (disabling buttons, spinner)
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -543,7 +548,7 @@ export default function App() {
 
   // Load & Sync data from Supabase using stable useCallback
   const syncSupabaseData = useCallback(async (silent = false) => {
-    if (!supabaseUser) return;
+    if (!user) return;
     if (!silent) setIsRefreshing(true);
 
     try {
@@ -551,7 +556,7 @@ export default function App() {
       const { data: dbTasks, error: tasksError } = await supabase
         .from('tasks')
         .select('*')
-        .eq('user_id', supabaseUser.id);
+        .eq('user_id', user.id);
 
       if (tasksError) {
         console.error('Error fetching tasks from Supabase:', tasksError);
@@ -563,7 +568,7 @@ export default function App() {
       const { data: dbEvents, error: eventsError } = await supabase
         .from('events')
         .select('*')
-        .eq('user_id', supabaseUser.id);
+        .eq('user_id', user.id);
 
       if (eventsError) {
         console.error('Error fetching events from Supabase:', eventsError);
@@ -590,7 +595,7 @@ setEvents(mappedEvents);
         }));
         setEvents(seededEvents);
 
-        const dbSeededEvents = seededEvents.map(e => eventToDb(e, supabaseUser.id));
+        const dbSeededEvents = seededEvents.map(e => eventToDb(e, user.id));
         const { error: seedError } = await resilientInsert('events', dbSeededEvents);
         if (seedError) {
           console.error('Failed to seed events in Supabase:', seedError);
@@ -601,7 +606,7 @@ setEvents(mappedEvents);
       const { data: dbSessions, error: sessionsError } = await supabase
         .from('study_sessions')
         .select('*')
-        .eq('user_id', supabaseUser.id);
+        .eq('user_id', user.id);
 
       if (sessionsError) {
         console.error('Error fetching study sessions:', sessionsError);
@@ -622,23 +627,23 @@ setEvents(mappedEvents);
     } finally {
       if (!silent) setIsRefreshing(false);
     }
-  }, [supabaseUser]);
+  }, [user]);
 
   // Initial sync on mount/login
   useEffect(() => {
-    if (supabaseUser) {
+    if (user) {
       syncSupabaseData(false);
     }
-  }, [supabaseUser, syncSupabaseData]);
+  }, [user, syncSupabaseData]);
 
   // Auto-refresh data from Supabase periodically in the background
   useEffect(() => {
-    if (!supabaseUser) return;
+    if (!user) return;
     const interval = setInterval(() => {
       syncSupabaseData(true); // silent refresh
     }, 15000); // Poll every 15 seconds for hot updates
     return () => clearInterval(interval);
-  }, [supabaseUser, syncSupabaseData]);
+  }, [user, syncSupabaseData]);
 
   // Chat message input bar
   const [chatInput, setChatInput] = useState('');
@@ -694,7 +699,7 @@ setEvents(mappedEvents);
 
             const newSession = {
               id: `session-${Date.now()}`,
-              user_id: supabaseUser?.id || 'offline-user',
+              user_id: user?.id || 'offline-user',
               category: timerCategory,
               duration_seconds: timerTargetMinutes * 60,
               study_hours: addedHours,
@@ -703,12 +708,12 @@ setEvents(mappedEvents);
             setStudySessions((prev) => [...prev, newSession]);
 
             // Log session to Supabase
-            if (supabaseUser) {
+            if (user) {
               supabase
                 .from('study_sessions')
                 .insert({
                   id: newSession.id,
-                  user_id: supabaseUser.id,
+                  user_id: user.id,
                   category: newSession.category,
                   duration_seconds: newSession.duration_seconds,
                   study_hours: newSession.study_hours,
@@ -727,7 +732,7 @@ setEvents(mappedEvents);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isTimerRunning, timerMinutes, timerSeconds, timerCategory, supabaseUser, timerTargetMinutes]);
+  }, [isTimerRunning, timerMinutes, timerSeconds, timerCategory, user, timerTargetMinutes]);
 
   // Utility to show global helper status banners
   const showBannerNotification = (message: string, type: 'success' | 'info') => {
@@ -1038,6 +1043,22 @@ setEvents(mappedEvents);
     setChatInput('');
     setIsAiTyping(true);
 
+    // Save conversation and user message to Supabase
+    let conversationId = activeConversationId;
+
+    if (
+      user &&
+      (conversationId === "conv-default" || conversationId.startsWith("conv-"))
+    ) {
+      const conversation = await createConversation(user.id);
+      conversationId = conversation.id;
+      setActiveConversationId(conversation.id);
+    }
+
+    if (user) {
+      await saveMessage(conversationId, "user", textToSend);
+    }
+
     try {
       // Package conversation history up to previous 10 messages for context
       const chatHistory = chatMessages.map((m) => ({
@@ -1072,6 +1093,9 @@ setEvents(mappedEvents);
       };
 
       setChatMessages((prev) => [...prev, newAiMessage]);
+      if (user) {
+        await saveMessage(conversationId, "assistant", aiResponseText);
+      }
     } catch (err: any) {
       console.error(err);
       const errMessage: ChatMessage = {
@@ -1118,9 +1142,9 @@ setEvents(mappedEvents);
 
       showBannerNotification(`Updated task: "${updatedTask.title}" successfully.`, "success");
 
-      if (supabaseUser && isValidUuid(updatedTask.id)) {
+      if (user && isValidUuid(updatedTask.id)) {
         try {
-          const { error } = await resilientUpdate('tasks', updatedTask.id, supabaseUser.id, taskToDb(updatedTask, supabaseUser.id));
+          const { error } = await resilientUpdate('tasks', updatedTask.id, user.id, taskToDb(updatedTask, user.id));
           if (error) {
             console.error('Failed to update task in Supabase:', error);
             showBannerNotification("Updated locally, but failed to sync to cloud.", "info");
@@ -1155,9 +1179,9 @@ setEvents(mappedEvents);
 
       showBannerNotification(`Saved task: "${newTask.title}" successfully.`, "success");
 
-      if (supabaseUser) {
+      if (user) {
         try {
-          const { error } = await resilientInsert('tasks', taskToDb(newTask, supabaseUser.id));
+          const { error } = await resilientInsert('tasks', taskToDb(newTask, user.id));
           if (error) {
             console.error('Failed to save task to Supabase:', error);
             showBannerNotification("Saved locally, but failed to sync to cloud.", "info");
@@ -1216,9 +1240,9 @@ setEvents(mappedEvents);
     );
     showBannerNotification("Task progression status synced.", "success");
 
-    if (supabaseUser && updatedTask && isValidUuid(taskId)) {
+    if (user && updatedTask && isValidUuid(taskId)) {
       try {
-        const { error } = await resilientUpdate('tasks', taskId, supabaseUser.id, {
+        const { error } = await resilientUpdate('tasks', taskId, user.id, {
           status: (updatedTask as Task).status,
           completed_percent: (updatedTask as Task).completedPercent
         });
@@ -1234,13 +1258,13 @@ setEvents(mappedEvents);
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     showBannerNotification("Academic task removed from log.", "info");
 
-    if (supabaseUser && isValidUuid(taskId)) {
+    if (user && isValidUuid(taskId)) {
       try {
         const { error } = await supabase
           .from('tasks')
           .delete()
           .eq('id', taskId)
-          .eq('user_id', supabaseUser.id);
+          .eq('user_id', user.id);
         if (error) console.error('Failed to delete task from Supabase:', error);
       } catch (err) {
         console.error('Task delete error:', err);
@@ -1284,9 +1308,9 @@ setEvents(mappedEvents);
 
       showBannerNotification(`Updated event: "${updatedEvent.title}" successfully.`, "success");
 
-      if (supabaseUser && isValidUuid(updatedEvent.id)) {
+      if (user && isValidUuid(updatedEvent.id)) {
         try {
-          const { error } = await resilientUpdate('events', updatedEvent.id, supabaseUser.id, eventToDb(updatedEvent, supabaseUser.id));
+          const { error } = await resilientUpdate('events', updatedEvent.id, user.id, eventToDb(updatedEvent, user.id));
           if (error) {
             console.error('Failed to update event in Supabase:', error);
             showBannerNotification("Updated locally, but failed to sync to cloud.", "info");
@@ -1323,11 +1347,11 @@ setEvents(mappedEvents);
 
       showBannerNotification(`Saved event: "${newEvent.title}" successfully.`, "success");
 
-      if (supabaseUser) {
+      if (user) {
         try {
           const { error } = await resilientInsert(
             'events', 
-            eventToDb(newEvent, supabaseUser.id)
+            eventToDb(newEvent, user.id)
           );
 
           if (error) {
@@ -1369,13 +1393,13 @@ setEvents(mappedEvents);
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
     showBannerNotification("Event removed from calendar.", "info");
 
-    if (supabaseUser && isValidUuid(eventId)) {
+    if (user && isValidUuid(eventId)) {
       try {
         const { error } = await supabase
           .from('events')
           .delete()
           .eq('id', eventId)
-          .eq('user_id', supabaseUser.id);
+          .eq('user_id', user.id);
         if (error) console.error('Failed to delete event from Supabase:', error);
       } catch (err) {
         console.error('Event delete error:', err);

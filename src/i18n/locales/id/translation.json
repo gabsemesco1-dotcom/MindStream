@@ -1,0 +1,17 @@
+{
+  "appName": "MindStream",
+  "dashboard": "Dasbor",
+  "calendar": "Kalender",
+  "tasks": "Tugas Akademik",
+  "timer": "Timer Pomodoro",
+  "aiTutor": "Pendamping Tutor AI",
+  "profileSettings": "Pengaturan Profil",
+  "profile": "Profil",
+  "settings": "Pengaturan",
+  "logout": "Keluar",
+  "signOut": "Keluar",
+  "createTask": "Buat Tugas",
+  "save": "Simpan",
+  "cancel": "Batal",
+  "welcome": "Selamat datang kembali!"
+}

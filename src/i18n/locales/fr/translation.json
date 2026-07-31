@@ -1,0 +1,17 @@
+{
+  "appName": "MindStream",
+  "dashboard": "Tableau de bord",
+  "calendar": "Calendrier",
+  "tasks": "Tâches académiques",
+  "timer": "Minuteur Pomodoro",
+  "aiTutor": "Compagnon IA",
+  "profileSettings": "Paramètres du profil",
+  "profile": "Profil",
+  "settings": "Paramètres",
+  "logout": "Déconnexion",
+  "signOut": "Se déconnecter",
+  "createTask": "Créer une tâche",
+  "save": "Enregistrer",
+  "cancel": "Annuler",
+  "welcome": "Bon retour !"
+}

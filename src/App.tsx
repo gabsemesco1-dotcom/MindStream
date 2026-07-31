@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   BookOpen,
   LayoutDashboard,
@@ -58,7 +59,7 @@ import {
 
 // Generate a secure, valid RFC4122 v4 UUID for database compatibility
 const generateUuid = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
@@ -79,18 +80,19 @@ const getLocalDateString = (d: Date = new Date()) => {
 };
 
 export default function App() {
+  const { t, i18n } = useTranslation();
   // Supabase Auth Integration hook
   const {
-  user,
-  profile: authProfile,
-  loading: authLoading,
-  signUp: supabaseSignUp,
-  signIn: supabaseSignIn,
-  signInWithGoogle: supabaseSignInWithGoogle,
-  signOut: supabaseSignOut,
-  resetPassword: supabaseResetPassword,
-  updateProfile: supabaseUpdateProfile
-} = useAuth();
+    user,
+    profile: authProfile,
+    loading: authLoading,
+    signUp: supabaseSignUp,
+    signIn: supabaseSignIn,
+    signInWithGoogle: supabaseSignInWithGoogle,
+    signOut: supabaseSignOut,
+    resetPassword: supabaseResetPassword,
+    updateProfile: supabaseUpdateProfile
+  } = useAuth();
 
   // User Authentication State
   const [currentUser, setCurrentUser] = useState<{
@@ -125,7 +127,7 @@ export default function App() {
 
   // Auth processing status for UI feedback (disabling buttons, spinner)
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
-  
+
   // Carousel slides index for onboarding
   const [onboardingSlide, setOnboardingSlide] = useState(0);
 
@@ -140,6 +142,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('mindstream_dark_mode') === 'true';
   });
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   useEffect(() => {
     if (darkMode) {
@@ -166,7 +169,7 @@ export default function App() {
   // Core mutable application state
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
-  
+
   // Persistent conversations and chat sessions
   const [conversations, setConversations] = useState<ChatConversation[]>(() => {
     const saved = localStorage.getItem('mindstream_conversations');
@@ -288,7 +291,7 @@ export default function App() {
   const calendarDaysInfo = useMemo(() => {
     // Number of days in the current month
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    
+
     // First day of current month (adjusted so 0 is Monday, 1 is Tuesday, ..., 6 is Sunday)
     const rawFirstDay = new Date(currentYear, currentMonth, 1).getDay();
     const firstDayIndex = rawFirstDay === 0 ? 6 : rawFirstDay - 1;
@@ -409,10 +412,10 @@ export default function App() {
       const errDetails = (error.details || '').toLowerCase();
       const fullErrStr = `${errMsg} ${errDetails}`;
 
-      let colMatch = fullErrStr.match(/column "([^"]+)"/) || 
-                     fullErrStr.match(/column ([^\s]+) does not exist/) || 
-                     fullErrStr.match(/has no column "([^"]+)"/);
-      
+      let colMatch = fullErrStr.match(/column "([^"]+)"/) ||
+        fullErrStr.match(/column ([^\s]+) does not exist/) ||
+        fullErrStr.match(/has no column "([^"]+)"/);
+
       let columnToRemove = colMatch ? colMatch[1] : null;
 
       if (!columnToRemove && records.length > 0) {
@@ -463,7 +466,7 @@ export default function App() {
             continue;
           }
         }
-        
+
         return { data: null, error };
       }
     }
@@ -494,10 +497,10 @@ export default function App() {
       const errDetails = (error.details || '').toLowerCase();
       const fullErrStr = `${errMsg} ${errDetails}`;
 
-      let colMatch = fullErrStr.match(/column "([^"]+)"/) || 
-                     fullErrStr.match(/column ([^\s]+) does not exist/) || 
-                     fullErrStr.match(/has no column "([^"]+)"/);
-      
+      let colMatch = fullErrStr.match(/column "([^"]+)"/) ||
+        fullErrStr.match(/column ([^\s]+) does not exist/) ||
+        fullErrStr.match(/has no column "([^"]+)"/);
+
       let columnToRemove = colMatch ? colMatch[1] : null;
 
       if (!columnToRemove) {
@@ -585,7 +588,7 @@ export default function App() {
           );
         });
 
-setEvents(mappedEvents);
+        setEvents(mappedEvents);
 
       } else {
         // No events found, seed with default events and save to Supabase
@@ -765,7 +768,7 @@ setEvents(mappedEvents);
 
   const handleGoogleSignIn = async () => {
     setIsAuthSubmitting(true);
-    
+
     // 1. Open the popup immediately to bypass browser popup blocker on user gesture
     const popup = window.open('', 'google_oauth_popup', 'width=550,height=680,scrollbars=yes,status=yes');
     if (!popup) {
@@ -859,7 +862,7 @@ setEvents(mappedEvents);
       localStorage.removeItem('mindstream_auth_token');
       sessionStorage.removeItem('mindstream_currentUser');
       sessionStorage.removeItem('mindstream_auth_token');
-      
+
       // Close the profile menu
       setIsProfileMenuOpen(false);
 
@@ -994,7 +997,7 @@ setEvents(mappedEvents);
         );
         lastIndex = boldRegex.lastIndex;
       }
-      
+
       if (lastIndex < content.length) {
         parts.push(content.substring(lastIndex));
       }
@@ -1063,8 +1066,8 @@ setEvents(mappedEvents);
       // Package conversation history up to previous 10 messages for context
       const chatHistory = chatMessages.map((m) => ({
         role: m.role === 'assistant'
-            ? 'model'
-            : 'user',
+          ? 'model'
+          : 'user',
         text: m.text
       }));
 
@@ -1350,7 +1353,7 @@ setEvents(mappedEvents);
       if (user) {
         try {
           const { error } = await resilientInsert(
-            'events', 
+            'events',
             eventToDb(newEvent, user.id)
           );
 
@@ -1411,7 +1414,7 @@ setEvents(mappedEvents);
   const pendingCount = tasks.filter((t) => t.status === 'pending').length;
   const inProgressCount = tasks.filter((t) => t.status === 'progress').length;
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
-  
+
   // Tasks due today: count of tasks where dueDate matches today's date and is not completed
   const tasksDueTodayCount = useMemo(() => {
     const targetDate = getLocalDateString();
@@ -1480,7 +1483,7 @@ setEvents(mappedEvents);
 
   return (
     <div id="mindstream-workspace" className={`min-h-screen relative selection:bg-[#4f46e5]/20 font-sans transition-colors duration-300 ${darkMode ? 'dark bg-[#0f111a] text-[#f3f4f6]' : 'bg-[#f9f9ff] text-[#151c27]'}`}>
-      
+
       {/* Banner Notifications overlay */}
       <AnimatePresence>
         {notification && (
@@ -1509,9 +1512,9 @@ setEvents(mappedEvents);
               <BookOpen className="text-[#3525cd] w-6 h-6" />
               <span className="font-bold text-lg tracking-tight text-[#3525cd]">MindStream</span>
             </div>
-            <button 
+            <button
               id="skipBtn"
-              onClick={handleOnboardingSkip} 
+              onClick={handleOnboardingSkip}
               className="text-sm font-semibold text-[#777587] hover:text-[#3525cd] transition-colors"
             >
               Skip
@@ -1531,9 +1534,9 @@ setEvents(mappedEvents);
                   className="flex flex-col items-center text-center space-y-6"
                 >
                   <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
-                    <img 
-                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700" 
-                      src={IMAGES.illustrationSlide1} 
+                    <img
+                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
+                      src={IMAGES.illustrationSlide1}
                       alt="Organize Your Studies"
                       referrerPolicy="no-referrer"
                     />
@@ -1557,9 +1560,9 @@ setEvents(mappedEvents);
                   className="flex flex-col items-center text-center space-y-6"
                 >
                   <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
-                    <img 
-                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700" 
-                      src={IMAGES.illustrationSlide2} 
+                    <img
+                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
+                      src={IMAGES.illustrationSlide2}
                       alt="Stay on Track"
                       referrerPolicy="no-referrer"
                     />
@@ -1583,9 +1586,9 @@ setEvents(mappedEvents);
                   className="flex flex-col items-center text-center space-y-6"
                 >
                   <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
-                    <img 
-                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700" 
-                      src={IMAGES.illustrationSlide3} 
+                    <img
+                      className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
+                      src={IMAGES.illustrationSlide3}
                       alt="Achieve Your Goals"
                       referrerPolicy="no-referrer"
                     />
@@ -2006,7 +2009,7 @@ setEvents(mappedEvents);
             {/* Loading Bar Experience */}
             <div className="space-y-4">
               <div className="h-2 w-full bg-[#dce2f3] dark:bg-[#2a2f45] rounded-full overflow-hidden relative">
-                <motion.div 
+                <motion.div
                   initial={{ width: '0%' }}
                   animate={{ width: '100%' }}
                   transition={{ duration: 3, ease: "easeInOut" }}
@@ -2024,7 +2027,7 @@ setEvents(mappedEvents);
       {/* 3. MAIN APP INTERACTIVE SCREEN */}
       {currentScreen === 'main' && (
         <div id="screen-main-app" className="flex flex-col min-h-screen pb-24 md:pb-0">
-          
+
           {/* Top Sticky App Bar Header */}
           <header className="sticky top-0 w-full z-40 backdrop-blur-md bg-[#f9f9ff]/80 dark:bg-[#0f111a]/80 shadow-sm border-b border-[#e2e8f8] dark:border-[#2a2f45] h-16 flex items-center justify-between px-4 md:px-8 max-w-7xl mx-auto transition-colors duration-300">
             <div className="flex items-center gap-3 relative">
@@ -2036,9 +2039,9 @@ setEvents(mappedEvents);
                 title="Profile Menu"
               >
                 <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#3525cd]/15 dark:border-[#3525cd]/30 relative shadow-sm">
-                  <img 
-                    className="w-full h-full object-cover" 
-                    src={currentUser?.avatarUrl || IMAGES.avatarGabriel} 
+                  <img
+                    className="w-full h-full object-cover"
+                    src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
                     alt="User Avatar"
                     referrerPolicy="no-referrer"
                   />
@@ -2055,11 +2058,11 @@ setEvents(mappedEvents);
                 {isProfileMenuOpen && (
                   <>
                     {/* Backdrop to close on click outside */}
-                    <div 
-                      className="fixed inset-0 z-40 cursor-default hidden md:block" 
+                    <div
+                      className="fixed inset-0 z-40 cursor-default hidden md:block"
                       onClick={() => setIsProfileMenuOpen(false)}
                     />
-                    
+
                     <motion.div
                       initial={{ opacity: 0, y: 15, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2071,11 +2074,11 @@ setEvents(mappedEvents);
                       {/* Top Profile Banner */}
                       <div className="flex items-center gap-3.5 pb-3.5 border-b border-[#e2e8f8] dark:border-[#2a2f45]">
                         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#3525cd]/10 shrink-0">
-                          <img 
-                            src={currentUser?.avatarUrl || IMAGES.avatarGabriel} 
-                            alt="User profile" 
-                            className="w-full h-full object-cover" 
-                            referrerPolicy="no-referrer" 
+                          <img
+                            src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
+                            alt="User profile"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
                           />
                         </div>
                         <div className="min-w-0">
@@ -2194,11 +2197,11 @@ setEvents(mappedEvents);
                 {isProfileMenuOpen && (
                   <>
                     {/* Dark overlay backdrop for mobile */}
-                    <div 
+                    <div
                       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 md:hidden cursor-default"
                       onClick={() => setIsProfileMenuOpen(false)}
                     />
-                    
+
                     <motion.div
                       initial={{ y: "100%" }}
                       animate={{ y: 0 }}
@@ -2213,11 +2216,11 @@ setEvents(mappedEvents);
                       {/* Profile details */}
                       <div className="flex items-center gap-4 pb-5 border-b border-[#e2e8f8] dark:border-[#2a2f45]">
                         <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#3525cd]/15 shrink-0">
-                          <img 
-                            src={currentUser?.avatarUrl || IMAGES.avatarGabriel} 
-                            alt="User profile" 
-                            className="w-full h-full object-cover" 
-                            referrerPolicy="no-referrer" 
+                          <img
+                            src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
+                            alt="User profile"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
                           />
                         </div>
                         <div className="min-w-0">
@@ -2335,15 +2338,15 @@ setEvents(mappedEvents);
             </div>
 
             <div className="flex items-center gap-3">
-              <button 
-                onClick={() => setShowSearch(true)} 
+              <button
+                onClick={() => setShowSearch(true)}
                 className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#e2e8f8] text-[#777587] hover:text-[#3525cd] transition-all"
                 title="Search task database..."
               >
                 <Search className="w-5 h-5" />
               </button>
-              <button 
-                onClick={() => showBannerNotification("MindStream synchronizing and up to date.", "info")} 
+              <button
+                onClick={() => showBannerNotification("MindStream synchronizing and up to date.", "info")}
                 className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#e2e8f8] text-[#3525cd] relative transition-all animate-none"
               >
                 <Bell className="w-5 h-5" />
@@ -2354,10 +2357,10 @@ setEvents(mappedEvents);
 
           {/* Desktop Left-Rail Layout Wrapper */}
           <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 md:p-8 flex gap-8">
-            
+
             {/* Desktop persistent sidebar */}
             <aside className="hidden lg:flex flex-col w-64 shrink-0 space-y-6">
-              
+
               {/* Profile Greeting Section */}
               <div className="bg-white p-6 rounded-2xl border border-[#e2e8f8] text-center space-y-3 shadow-sm">
                 <div className="w-20 h-20 rounded-full mx-auto overflow-hidden border-4 border-[#3525cd]/10">
@@ -2376,12 +2379,12 @@ setEvents(mappedEvents);
               {/* Sidebar Tabs Navigation */}
               <div className="bg-white rounded-2xl border border-[#e2e8f8] p-4 shadow-sm space-y-1">
                 {[
-                  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                  { id: 'calendar', label: 'Calendar', icon: CalendarIcon },
-                  { id: 'tasks', label: 'Academic Tasks', icon: ListTodo },
-                  { id: 'timer', label: 'Pomodoro Timer', icon: ClockIcon },
-                  { id: 'aitutor', label: 'AI Tutor Companion', icon: Cpu },
-                  { id: 'profile', label: 'Profile Settings', icon: User }
+                  { id: 'dashboard', label: t('dashboard'), icon: LayoutDashboard },
+                  { id: 'calendar', label: t('calendar'), icon: CalendarIcon },
+                  { id: 'tasks', label: t('tasks'), icon: ListTodo },
+                  { id: 'timer', label: t('timer'), icon: ClockIcon },
+                  { id: 'aitutor', label: t('aiTutor'), icon: Cpu },
+                  { id: 'profile', label: t('profileSettings'), icon: User }
                 ].map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
@@ -2421,7 +2424,7 @@ setEvents(mappedEvents);
             {/* Active Sub-tab View panel Content */}
             <main className="flex-1 min-w-0">
               <AnimatePresence mode="wait">
-                
+
                 {/* SUB TAB: DASHBOARD */}
                 {activeTab === 'dashboard' && (
                   <motion.section
@@ -2449,16 +2452,15 @@ setEvents(mappedEvents);
                           Good Morning, {currentUser?.fullName?.split(' ')[0] || 'Gabriel'}
                         </h2>
                       </div>
-                      
+
                       <button
                         onClick={() => syncSupabaseData(false)}
                         disabled={isRefreshing}
                         title="Synchronize database with Supabase"
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                          isRefreshing 
-                            ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' 
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${isRefreshing
+                            ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed'
                             : 'bg-white hover:bg-gray-50 border-[#e2e8f8] text-[#464555] hover:text-[#3525cd] shadow-2xs'
-                        }`}
+                          }`}
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
                         <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
@@ -2467,7 +2469,7 @@ setEvents(mappedEvents);
 
                     {/* Stat Cards Bento Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      
+
                       {/* Stat Card 1 */}
                       <div className="bg-white p-5 rounded-2xl border border-[#e2e8f8] flex flex-col justify-between shadow-sm relative overflow-hidden">
                         <div className="w-10 h-10 rounded-xl bg-[#e2dfff] flex items-center justify-center text-[#3525cd]">
@@ -2523,7 +2525,7 @@ setEvents(mappedEvents);
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      
+
                       {/* Timeline: Today's Schedule Card */}
                       <div className="lg:col-span-7 bg-white rounded-2xl border border-[#e2e8f8] p-6 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
@@ -2556,12 +2558,12 @@ setEvents(mappedEvents);
                                   typeColor = 'bg-purple-50 border-[#7c3aed] text-[#5b21b6]';
                                   dotColor = 'bg-[#7c3aed]';
                                 }
-                                
+
                                 const isLast = idx === todaysEvents.length - 1 && todaysTasks.length === 0;
 
                                 return (
-                                  <div 
-                                    key={e.id} 
+                                  <div
+                                    key={e.id}
                                     className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-[#e2e8f8]' : ''}`}
                                   >
                                     <span className={`absolute -left-[6px] top-1.5 w-2.5 h-2.5 rounded-full ${dotColor}`} />
@@ -2594,8 +2596,8 @@ setEvents(mappedEvents);
                                 const isLast = idx === todaysTasks.length - 1;
 
                                 return (
-                                  <div 
-                                    key={t.id} 
+                                  <div
+                                    key={t.id}
                                     className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-[#e2e8f8]' : ''}`}
                                   >
                                     <span className={`absolute -left-[6px] top-1.5 w-2.5 h-2.5 rounded-full ${dotColor}`} />
@@ -2621,12 +2623,12 @@ setEvents(mappedEvents);
 
                       {/* Right Hand: Upcoming Deadlines */}
                       <div className="lg:col-span-5 space-y-6">
-                        
+
                         <div className="bg-white rounded-2xl border border-[#e2e8f8] p-6 shadow-sm space-y-4">
                           <h3 className="font-extrabold text-md text-[#151c27] tracking-tight">Upcoming Deadlines</h3>
-                          
+
                           <div className="space-y-4">
-                            
+
                             {/* Deadline list card 1 */}
                             <div className="p-4 bg-[#f0f3ff] rounded-xl space-y-2 border border-[#e2e8f8]">
                               <div className="flex justify-between items-center text-xs">
@@ -2657,13 +2659,13 @@ setEvents(mappedEvents);
                         </div>
 
                         {/* Interactive AI Study Companion promo Card */}
-                        <div 
+                        <div
                           onClick={() => setActiveTab('aitutor')}
                           className="group relative rounded-2xl overflow-hidden h-36 shadow-md border border-[#e2e8f8] cursor-pointer"
                         >
-                          <img 
-                            src={IMAGES.companionCardBg} 
-                            alt="AI background" 
+                          <img
+                            src={IMAGES.companionCardBg}
+                            alt="AI background"
                             className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 pointer-events-none"
                             referrerPolicy="no-referrer"
                           />
@@ -2720,13 +2722,13 @@ setEvents(mappedEvents);
 
                       {/* Switch view toggle */}
                       <div className="bg-[#e2e8f8]/80 p-1 rounded-xl flex items-center justify-start w-fit shadow-xs">
-                        <button 
+                        <button
                           onClick={() => setCalendarView('month')}
                           className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'month' ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555]'}`}
                         >
                           Month
                         </button>
-                        <button 
+                        <button
                           onClick={() => setCalendarView('week')}
                           className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'week' ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555]'}`}
                         >
@@ -2736,7 +2738,7 @@ setEvents(mappedEvents);
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      
+
                       {/* Interactive Calendar grid */}
                       <div className="lg:col-span-8 bg-white p-5 rounded-2xl border border-[#e2e8f8] shadow-sm">
                         <div className="grid grid-cols-7 text-center font-bold text-xs text-[#777587] pb-3 border-b border-[#e2e8f8]">
@@ -2757,7 +2759,7 @@ setEvents(mappedEvents);
                             const formattedDay = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}`;
                             const isToday = formattedDay === getLocalDateString();
                             const isSelected = selectedDate === formattedDay;
-                            
+
                             // Check for events mock badge dots
                             const hasEvents = events.some((e) => e.date === formattedDay);
 
@@ -2765,13 +2767,12 @@ setEvents(mappedEvents);
                               <button
                                 key={dayNum}
                                 onClick={() => setSelectedDate(formattedDay)}
-                                className={`aspect-square relative flex flex-col items-center justify-center rounded-xl transition-all ${
-                                  isSelected 
-                                    ? 'bg-[#3525cd] text-white font-bold shadow-lg scale-105' 
-                                    : isToday 
-                                    ? 'bg-[#e2dfff] text-[#3525cd] font-bold border border-[#3525cd]/20' 
-                                    : 'hover:bg-[#f0f3ff] text-[#151c27]'
-                                }`}
+                                className={`aspect-square relative flex flex-col items-center justify-center rounded-xl transition-all ${isSelected
+                                    ? 'bg-[#3525cd] text-white font-bold shadow-lg scale-105'
+                                    : isToday
+                                      ? 'bg-[#e2dfff] text-[#3525cd] font-bold border border-[#3525cd]/20'
+                                      : 'hover:bg-[#f0f3ff] text-[#151c27]'
+                                  }`}
                               >
                                 <span className="text-sm">{dayNum}</span>
                                 {hasEvents && (
@@ -2831,14 +2832,14 @@ setEvents(mappedEvents);
                                   if (e.type === 'class') typeColor = 'bg-[#4f46e5]/5 border-[#3525cd] text-[#3323cc]';
                                   if (e.type === 'study') typeColor = 'bg-emerald-50 border-[#006b5f] text-[#006f64]';
                                   if (e.type === 'submission') typeColor = 'bg-purple-50 border-[#7c3aed] text-[#5b21b6]';
-                                  
+
                                   return (
                                     <div key={e.id} className="flex gap-3 text-left group">
                                       <div className="text-xs text-[#777587] pt-1 whitespace-nowrap w-16">{e.time}</div>
                                       <div className={`flex-1 p-3 border-l-4 rounded-r-xl relative ${typeColor}`}>
                                         <h4 className="text-xs font-semibold leading-snug pr-12">{e.title}</h4>
                                         <p className="text-[10px] opacity-85 mt-0.5">{e.location} • {e.duration} Hours • {e.subject}</p>
-                                        
+
                                         {/* Edit & Delete hover controls */}
                                         <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 bg-white/90 backdrop-blur-xs p-0.5 rounded-lg transition-opacity border border-gray-100 shadow-sm">
                                           <button
@@ -2864,7 +2865,7 @@ setEvents(mappedEvents);
                               <div className="text-center py-8 text-[#777587] space-y-2">
                                 <BookOpen className="w-8 h-8 opacity-40 mx-auto" />
                                 <p className="text-xs font-medium">No schedule blocks logged on this date.</p>
-                                <button 
+                                <button
                                   onClick={() => {
                                     setEventDate(selectedDate);
                                     setEditingEvent(null);
@@ -2888,7 +2889,7 @@ setEvents(mappedEvents);
                         {/* Summary panel highlights */}
                         <div className="bg-[#f0f3ff] p-5 rounded-2xl border border-[#e2e8f8] space-y-4">
                           <h3 className="text-xs uppercase tracking-wider font-bold text-[#777587]">Upcoming Highlights</h3>
-                          
+
                           <div className="space-y-3">
                             <div className="flex gap-3 items-center bg-white p-3 rounded-xl border border-[#e2e8f8]">
                               <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center text-red-600">
@@ -2939,9 +2940,8 @@ setEvents(mappedEvents);
                           <button
                             key={st}
                             onClick={() => setTaskFilter(st)}
-                            className={`px-5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
-                              taskFilter === st ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:text-[#3525cd]'
-                            }`}
+                            className={`px-5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${taskFilter === st ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:text-[#3525cd]'
+                              }`}
                           >
                             {st === 'progress' ? 'In Progress' : st}
                           </button>
@@ -2951,7 +2951,7 @@ setEvents(mappedEvents);
 
                     {/* Task Display Bento view */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      
+
                       {tasks.filter((t) => t.status === taskFilter).length > 0 ? (
                         tasks
                           .filter((t) => t.status === taskFilter)
@@ -2969,28 +2969,27 @@ setEvents(mappedEvents);
 
                                 <div>
                                   <div className="flex justify-between items-start mb-3">
-                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                      isHigh ? 'bg-red-100 text-red-600' : isMed ? 'bg-indigo-100 text-[#3525cd]' : 'bg-gray-100 text-[#777587]'
-                                    }`}>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isHigh ? 'bg-red-100 text-red-600' : isMed ? 'bg-indigo-100 text-[#3525cd]' : 'bg-gray-100 text-[#777587]'
+                                      }`}>
                                       {t.priority} Priority
                                     </span>
                                     <div className="flex items-center gap-1">
-                                      <button 
-                                        onClick={() => toggleTaskStatus(t.id)} 
+                                      <button
+                                        onClick={() => toggleTaskStatus(t.id)}
                                         className="text-[#777587] hover:text-[#3525cd] p-1 rounded-full hover:bg-gray-100 transition-colors"
                                         title="Cycle status checkpoint"
                                       >
                                         <CheckCircle2 className="w-4 h-4" />
                                       </button>
-                                      <button 
-                                        onClick={() => startEditTask(t)} 
+                                      <button
+                                        onClick={() => startEditTask(t)}
                                         className="text-[#777587] hover:text-[#3525cd] p-1 rounded-full hover:bg-gray-100 transition-colors"
                                         title="Edit task details"
                                       >
                                         <Pencil className="w-3.5 h-3.5" />
                                       </button>
-                                      <button 
-                                        onClick={() => deleteTask(t.id)} 
+                                      <button
+                                        onClick={() => deleteTask(t.id)}
                                         className="text-[#777587] hover:text-red-500 p-1 rounded-full hover:bg-gray-100 transition-colors"
                                         title="Remove task completely"
                                       >
@@ -3089,9 +3088,8 @@ setEvents(mappedEvents);
                               setTimerSeconds(0);
                               setIsTimerRunning(false);
                             }}
-                            className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition-all ${
-                              timerTargetMinutes === mins ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
-                            }`}
+                            className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition-all ${timerTargetMinutes === mins ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
+                              }`}
                           >
                             {mins}m
                           </button>
@@ -3107,9 +3105,8 @@ setEvents(mappedEvents);
                           <button
                             key={cat}
                             onClick={() => setTimerCategory(cat)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
-                              timerCategory === cat ? 'bg-[#3525cd] text-white shadow-sm' : 'bg-gray-100 text-[#464555] hover:bg-[#e2e8f8]'
-                            }`}
+                            className={`px-3 py-1.5 rounded-full text-xs font-semibold ${timerCategory === cat ? 'bg-[#3525cd] text-white shadow-sm' : 'bg-gray-100 text-[#464555] hover:bg-[#e2e8f8]'
+                              }`}
                           >
                             {cat}
                           </button>
@@ -3133,9 +3130,8 @@ setEvents(mappedEvents);
 
                       <button
                         onClick={() => setIsTimerRunning(!isTimerRunning)}
-                        className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-200 active:scale-95 ${
-                          isTimerRunning ? 'bg-[#ba1a1a] hover:bg-[#ba1a1a]/90' : 'bg-[#3525cd] hover:bg-[#3525cd]/90'
-                        }`}
+                        className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-200 active:scale-95 ${isTimerRunning ? 'bg-[#ba1a1a] hover:bg-[#ba1a1a]/90' : 'bg-[#3525cd] hover:bg-[#3525cd]/90'
+                          }`}
                       >
                         {isTimerRunning ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-1" />}
                       </button>
@@ -3222,21 +3218,20 @@ setEvents(mappedEvents);
                         <h3 className="text-[11px] font-bold text-[#777587] dark:text-[#9ca3af] uppercase tracking-wider mb-3">
                           Recent Sessions
                         </h3>
-                        
+
                         <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar">
                           {conversations.map((c) => {
                             const isActive = c.id === activeConversationId;
                             const isEditing = c.id === editingConvId;
-                            
+
                             return (
                               <div
                                 key={c.id}
                                 onClick={() => !isEditing && setActiveConversationId(c.id)}
-                                className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${
-                                  isActive
+                                className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${isActive
                                     ? 'bg-[#f0f3ff] dark:bg-[#1e2235] text-[#3525cd] dark:text-[#7f75f0] border-[#3525cd]/20 dark:border-[#7f75f0]/20'
                                     : 'hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] border-transparent'
-                                }`}
+                                  }`}
                               >
                                 {isEditing ? (
                                   <form
@@ -3399,11 +3394,10 @@ setEvents(mappedEvents);
                                         setIsMobileHistoryOpen(false);
                                       }
                                     }}
-                                    className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${
-                                      isActive
+                                    className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${isActive
                                         ? 'bg-[#f0f3ff] dark:bg-[#1e2235] text-[#3525cd] dark:text-[#7f75f0] border-[#3525cd]/20 dark:border-[#7f75f0]/20'
                                         : 'hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] border-transparent'
-                                    }`}
+                                      }`}
                                   >
                                     {isEditing ? (
                                       <form
@@ -3476,7 +3470,7 @@ setEvents(mappedEvents);
 
                     {/* Chat Messenger Box container */}
                     <section className="flex-1 bg-white dark:bg-[#161925] rounded-2xl border border-[#e2e8f8] dark:border-[#2a2f45] flex flex-col justify-between overflow-hidden shadow-sm">
-                      
+
                       {/* Chat Header */}
                       <header className="px-5 py-3.5 border-b border-[#e2e8f8] dark:border-[#2a2f45] flex items-center justify-between bg-white dark:bg-[#161925]">
                         <div className="flex items-center gap-3">
@@ -3488,11 +3482,11 @@ setEvents(mappedEvents);
                           >
                             <ClockIcon className="w-4 h-4" />
                           </button>
-                          
+
                           <div className="w-2.5 h-2.5 rounded-full bg-[#10B981] animate-pulse" />
                           <span className="text-xs font-bold text-[#464555] dark:text-[#9ca3af]">MindStream AI Companion</span>
                         </div>
-                        <button 
+                        <button
                           onClick={() => showBannerNotification("MindStream AI is running on Gemini 3.5 Flash server proxy", "info")}
                           className="text-xs font-bold text-[#3525cd] dark:text-[#7f75f0] hover:underline cursor-pointer"
                         >
@@ -3506,18 +3500,16 @@ setEvents(mappedEvents);
                           const isAI = m.role === 'assistant';
                           return (
                             <div key={m.id} className={`flex gap-3 max-w-[85%] ${isAI ? '' : 'ml-auto flex-row-reverse'}`}>
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${
-                                isAI 
-                                  ? 'bg-[#3525cd]/10 dark:bg-[#7f75f0]/10 border-[#3223cc]/10 dark:border-[#7f75f0]/15 text-[#3525cd] dark:text-[#7f75f0]' 
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${isAI
+                                  ? 'bg-[#3525cd]/10 dark:bg-[#7f75f0]/10 border-[#3223cc]/10 dark:border-[#7f75f0]/15 text-[#3525cd] dark:text-[#7f75f0]'
                                   : 'bg-[#e2dfff] dark:bg-[#252347] border-indigo-200 dark:border-indigo-950 text-[#3525cd] dark:text-[#7f75f0]'
-                              }`}>
+                                }`}>
                                 {isAI ? <Bot className="w-5 h-5" /> : <User className="w-5 h-5" />}
                               </div>
-                              <div className={`p-4 rounded-2xl ${
-                                isAI 
-                                  ? 'bg-[#f0f3ff] dark:bg-[#1e2235] rounded-tl-none text-[#151c27] dark:text-[#e2e8f0] border border-[#e2e8f8] dark:border-[#2a2f45]' 
+                              <div className={`p-4 rounded-2xl ${isAI
+                                  ? 'bg-[#f0f3ff] dark:bg-[#1e2235] rounded-tl-none text-[#151c27] dark:text-[#e2e8f0] border border-[#e2e8f8] dark:border-[#2a2f45]'
                                   : 'bg-[#3525cd] dark:bg-[#7f75f0] text-white rounded-tr-none shadow-sm'
-                              }`}>
+                                }`}>
                                 <div className="space-y-2">
                                   {renderMessageText(m.text)}
                                 </div>
@@ -3549,7 +3541,7 @@ setEvents(mappedEvents);
 
                       {/* Suggestion Chips & Chat Input block */}
                       <footer className="p-4 border-t border-[#e2e8f8] dark:border-[#2a2f45] bg-[#f9f9ff] dark:bg-[#12141d] space-y-3 shrink-0">
-                        
+
                         {/* Chips list mapping */}
                         <div className="flex flex-wrap gap-1.5">
                           {[
@@ -3575,7 +3567,7 @@ setEvents(mappedEvents);
 
                         {/* Input line */}
                         <div className="flex items-center gap-3 bg-white dark:bg-[#161925] border-2 border-[#e2e8f8] dark:border-[#2a2f45] rounded-2xl px-4 py-2 focus-within:border-[#3525cd] dark:focus-within:border-[#7f75f0] transition-all">
-                          <button 
+                          <button
                             onClick={() => showBannerNotification("You can upload notes or syllabus papers directly to your workspace.", "info")}
                             className="p-1.5 text-[#777587] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-colors cursor-pointer"
                           >
@@ -3626,7 +3618,7 @@ setEvents(mappedEvents);
 
                     <div className="space-y-4">
                       <h4 className="text-xs uppercase tracking-wider font-bold text-[#777587]">Academic Milestones completed</h4>
-                      
+
                       <div className="grid grid-cols-2 gap-3">
                         <div className="bg-[#f0f3ff] p-4 rounded-xl border border-[#e2e8f8]">
                           <span className="text-xs text-[#777587]">Study Streak</span>
@@ -3652,6 +3644,59 @@ setEvents(mappedEvents);
                           <li className="flex justify-between">
                             <span>Class workspace instance ID</span>
                             <span className="font-mono text-[10px] text-[#777587]">611c2af5-f1ef</span>
+                          </li>
+                          <li className="flex justify-between items-center relative">
+                            <span>🌐 Language</span>
+
+                            <button
+                              type="button"
+                              onClick={() => setLanguageMenuOpen(!languageMenuOpen)}
+                              className="flex items-center gap-2 text-[#3525cd] font-bold hover:opacity-80"
+                            >
+                              {i18n.language === "fr"
+                                ? "Français"
+                                : i18n.language === "id"
+                                  ? "Bahasa Indonesia"
+                                  : "English"}
+
+                              <ChevronDown className="w-4 h-4" />
+                            </button>
+
+                            {languageMenuOpen && (
+                              <div className="absolute right-0 top-8 bg-white border border-[#e2e8f8] rounded-lg shadow-lg z-50 w-44 overflow-hidden">
+
+                                <button
+                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  onClick={() => {
+                                    i18n.changeLanguage("en");
+                                    setLanguageMenuOpen(false);
+                                  }}
+                                >
+                                  🇬🇧 English
+                                </button>
+
+                                <button
+                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  onClick={() => {
+                                    i18n.changeLanguage("fr");
+                                    setLanguageMenuOpen(false);
+                                  }}
+                                >
+                                  🇫🇷 Français
+                                </button>
+
+                                <button
+                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  onClick={() => {
+                                    i18n.changeLanguage("id");
+                                    setLanguageMenuOpen(false);
+                                  }}
+                                >
+                                  🇮🇩 Bahasa Indonesia
+                                </button>
+
+                              </div>
+                            )}
                           </li>
                         </ul>
                       </div>
@@ -3691,9 +3736,8 @@ setEvents(mappedEvents);
                 <button
                   key={navItem.id}
                   onClick={() => setActiveTab(navItem.id as any)}
-                  className={`flex flex-col items-center justify-center px-4 py-1.5 rounded-xl transition-all duration-200 ${
-                    isActive ? 'bg-[#3525cd]/10 text-[#3525cd] scale-105 font-bold' : 'text-[#777587]/80 hover:bg-[#f0f3ff]'
-                  }`}
+                  className={`flex flex-col items-center justify-center px-4 py-1.5 rounded-xl transition-all duration-200 ${isActive ? 'bg-[#3525cd]/10 text-[#3525cd] scale-105 font-bold' : 'text-[#777587]/80 hover:bg-[#f0f3ff]'
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span className="text-[10px] mt-0.5 tracking-tight font-medium leading-none">{navItem.label}</span>
@@ -3706,7 +3750,7 @@ setEvents(mappedEvents);
           <AnimatePresence>
             {isAddingTask && (
               <div className="fixed inset-0 bg-[#151c27]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
-                
+
                 {/* Backdrop Click */}
                 <div className="absolute inset-0" onClick={closeAddTaskModal} />
 
@@ -3718,12 +3762,12 @@ setEvents(mappedEvents);
                   className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#e2e8f8] overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
                 >
                   <form onSubmit={handleCreateTask} className="flex flex-col h-full max-h-[90vh] md:max-h-[85vh] overflow-hidden">
-                    
+
                     {/* Modal Header */}
                     <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-[#e2e8f8] bg-white z-10">
-                      <button 
+                      <button
                         type="button"
-                        onClick={closeAddTaskModal} 
+                        onClick={closeAddTaskModal}
                         className="p-1.5 hover:bg-gray-100 rounded-full text-[#777587] hover:text-[#3525cd] transition-colors"
                       >
                         <X className="w-5 h-5 animate-none" />
@@ -3734,7 +3778,7 @@ setEvents(mappedEvents);
 
                     {/* Scrollable Form Body */}
                     <div className="flex-1 p-6 space-y-5 overflow-y-auto no-scrollbar">
-                      
+
                       {/* Floating draft icon ribbon */}
                       <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-[#e2e8f8] flex items-center justify-center">
                         <ListTodo className="w-10 h-10 text-[#3525cd]/45 select-none" />
@@ -3787,9 +3831,8 @@ setEvents(mappedEvents);
                               key={p}
                               type="button"
                               onClick={() => setTaskPriority(p)}
-                              className={`flex-1 text-center py-2 rounded-lg text-xs font-bold uppercase transition-all ${
-                                taskPriority === p ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:bg-white/40'
-                              }`}
+                              className={`flex-1 text-center py-2 rounded-lg text-xs font-bold uppercase transition-all ${taskPriority === p ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:bg-white/40'
+                                }`}
                             >
                               {p}
                             </button>
@@ -3838,7 +3881,7 @@ setEvents(mappedEvents);
           <AnimatePresence>
             {isAddingEvent && (
               <div className="fixed inset-0 bg-[#151c27]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
-                
+
                 {/* Backdrop Click */}
                 <div className="absolute inset-0" onClick={closeAddEventModal} />
 
@@ -3850,12 +3893,12 @@ setEvents(mappedEvents);
                   className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#e2e8f8] overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
                 >
                   <form onSubmit={handleCreateEvent} className="flex flex-col h-full max-h-[90vh] md:max-h-[85vh] overflow-hidden">
-                    
+
                     {/* Modal Header */}
                     <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-[#e2e8f8] bg-white z-10">
-                      <button 
+                      <button
                         type="button"
-                        onClick={closeAddEventModal} 
+                        onClick={closeAddEventModal}
                         className="p-1.5 hover:bg-gray-100 rounded-full text-[#777587] hover:text-[#3525cd] transition-colors"
                       >
                         <X className="w-5 h-5 animate-none" />
@@ -3866,7 +3909,7 @@ setEvents(mappedEvents);
 
                     {/* Scrollable Form Body */}
                     <div className="flex-1 p-6 space-y-5 overflow-y-auto no-scrollbar">
-                      
+
                       {/* Floating draft icon ribbon */}
                       <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-[#e2e8f8] flex items-center justify-center">
                         <CalendarIcon className="w-10 h-10 text-[#3525cd]/45 select-none" />
@@ -3977,9 +4020,8 @@ setEvents(mappedEvents);
                               key={t.id}
                               type="button"
                               onClick={() => setEventType(t.id as any)}
-                              className={`flex-1 text-center py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
-                                eventType === t.id ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
-                              }`}
+                              className={`flex-1 text-center py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${eventType === t.id ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
+                                }`}
                             >
                               {t.label}
                             </button>
@@ -4041,18 +4083,18 @@ setEvents(mappedEvents);
                   {/* Filtered outputs */}
                   <div className="space-y-2 max-h-60 overflow-y-auto no-scrollbar">
                     {searchQuery.trim() !== '' ? (
-                      tasks.filter((t) => 
+                      tasks.filter((t) =>
                         t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                         t.subject.toLowerCase().includes(searchQuery.toLowerCase())
                       ).length > 0 ? (
                         tasks
-                          .filter((t) => 
+                          .filter((t) =>
                             t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             t.subject.toLowerCase().includes(searchQuery.toLowerCase())
                           )
                           .map((t) => (
-                            <div 
-                              key={t.id} 
+                            <div
+                              key={t.id}
                               onClick={() => {
                                 setShowSearch(false);
                                 setActiveTab('tasks');

@@ -40,6 +40,7 @@ import {
   Settings,
   Moon,
   Sun,
+  Monitor,
   HelpCircle,
   Pencil,
   RefreshCw,
@@ -136,23 +137,43 @@ export default function App() {
 
   // Profile Menu open/closed state
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-
-
-  // Dark Mode preference state (saved in localStorage)
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem('mindstream_dark_mode') === 'true';
-  });
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
+
+  // Theme Mode preference state (saved in localStorage)
+  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(() => {
+    const saved = localStorage.getItem('mindstream_theme_mode');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    const legacy = localStorage.getItem('mindstream_dark_mode');
+    if (legacy === 'true') return 'dark';
+    if (legacy === 'false') return 'light';
+    return 'system';
+  });
+
+  // Calculate actual dark mode status for inline conditional rendering
+  const [isDarkActive, setIsDarkActive] = useState<boolean>(false);
+
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('mindstream_dark_mode', 'true');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('mindstream_dark_mode', 'false');
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const applyTheme = () => {
+      const isDark = themeMode === 'dark' || (themeMode === 'system' && mediaQuery.matches);
+      setIsDarkActive(isDark);
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+    localStorage.setItem('mindstream_theme_mode', themeMode);
+
+    if (themeMode === 'system') {
+      mediaQuery.addEventListener('change', applyTheme);
+      return () => mediaQuery.removeEventListener('change', applyTheme);
     }
-  }, [darkMode]);
+  }, [themeMode]);
 
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -164,7 +185,7 @@ export default function App() {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
-  const [registerStudentLevel, setRegisterStudentLevel] = useState('Undergraduate Student');
+  const [registerStudentLevel, setRegisterStudentLevel] = useState(t("undergraduateStudent"));
 
   // Core mutable application state
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -185,7 +206,7 @@ export default function App() {
     }
     const defaultConv: ChatConversation = {
       id: 'conv-default',
-      title: 'Biology & Krebs Cycle Prep',
+      title: t("defaultConversationTitle"),
       messages: INITIAL_CHAT,
       createdAt: new Date().toLocaleDateString()
     };
@@ -228,7 +249,7 @@ export default function App() {
           if (c.id === activeConversationId) {
             let title = c.title;
             // Auto rename if it's currently a placeholder
-            if (title === 'New Chat' || title === 'Untitled Conversation') {
+            if (title === t("newChat") || title === t("untitledConversation")) {
               const firstUserMsg = chatMessages.find(m => m.role === 'user');
               if (firstUserMsg) {
                 title = firstUserMsg.text.length > 25 ? firstUserMsg.text.substring(0, 22) + '...' : firstUserMsg.text;
@@ -334,12 +355,12 @@ export default function App() {
   const [timerMinutes, setTimerMinutes] = useState(25);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timerCategory, setTimerCategory] = useState('Deep Focus');
+  const [timerCategory, setTimerCategory] = useState(t("deepFocus"));
   const [timerTargetMinutes, setTimerTargetMinutes] = useState(25);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cumulative study hours logged
-  const [studyHours, setStudyHours] = useState(4.5);
+  const [studyHours, setStudyHours] = useState(0);
   const [studySessions, setStudySessions] = useState<any[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -619,10 +640,10 @@ export default function App() {
           const h = s.study_hours || s.studyHours || Number((s.duration_seconds || s.durationSeconds || 0) / 3600);
           return sum + Number(h);
         }, 0);
-        setStudyHours(totalHours > 0 ? parseFloat(totalHours.toFixed(1)) : 4.5);
+        setStudyHours(parseFloat(totalHours.toFixed(1)));
       } else {
         setStudySessions([]);
-        setStudyHours(4.5);
+        setStudyHours(0);
       }
 
     } catch (err) {
@@ -696,13 +717,13 @@ export default function App() {
             const addedHours = Number((timerTargetMinutes / 60).toFixed(2));
             setStudyHours((prev) => parseFloat((prev + addedHours).toFixed(1)));
             setStreakDays((prev) => prev + 1);
-            showBannerNotification("Great job! Focus session completed.", "success");
+            showBannerNotification(t('Great job! Focus session completed.'), "success");
             setTimerMinutes(timerTargetMinutes);
             setTimerSeconds(0);
 
             const newSession = {
-              id: `session-${Date.now()}`,
-              user_id: user?.id || 'offline-user',
+              id: crypto.randomUUID(),
+              user_id: user?.id,
               category: timerCategory,
               duration_seconds: timerTargetMinutes * 60,
               study_hours: addedHours,
@@ -722,8 +743,13 @@ export default function App() {
                   study_hours: newSession.study_hours,
                   completed_at: newSession.completed_at
                 })
-                .then(({ error }) => {
-                  if (error) console.error('Failed to log study session to Supabase:', error);
+                .then(({ data, error }) => {
+                  console.log("Insert result:", data);
+                  console.log("Insert error:", error);
+
+                  if (error) {
+                    console.error("Failed to log study session:", error);
+                  }
                 });
             }
           }
@@ -749,18 +775,18 @@ export default function App() {
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail.trim() || !loginPassword.trim()) {
-      showBannerNotification("Please enter both email and password.", "info");
+      showBannerNotification(t('pleaseFillRegFields'), "info");
       return;
     }
 
     setIsAuthSubmitting(true);
     try {
       await supabaseSignIn(loginEmail.trim(), loginPassword);
-      showBannerNotification("Welcome back to MindStream!", "success");
+      showBannerNotification(t('welcomeToMindstream'), "success");
       setCurrentScreen('preloader');
     } catch (error: any) {
       console.error(error);
-      showBannerNotification(error.message || "Invalid email or password.", "info");
+      showBannerNotification(error.message || t('registrationFailed'), "info");
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -772,18 +798,18 @@ export default function App() {
     // 1. Open the popup immediately to bypass browser popup blocker on user gesture
     const popup = window.open('', 'google_oauth_popup', 'width=550,height=680,scrollbars=yes,status=yes');
     if (!popup) {
-      showBannerNotification("Please allow popups for this site to sign in with Google.", "info");
+      showBannerNotification(t('enterEmailFirst'), "info");
       setIsAuthSubmitting(false);
       return;
     }
-    popup.document.write('<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; text-align:center; padding-top:100px; color:#151c27;"><p style="font-size:16px; font-weight:600;">Connecting with Google...</p><p style="font-size:12px; color:#777587;">Completing secure handshake</p></div>');
+    popup.document.write(`<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; text-align:center; padding-top:100px; color:#0A192F;"><p style="font-size:16px; font-weight:600;">${t('connectingWithGoogle')}</p><p style="font-size:12px; color:#777587;">${t('completingSecureHandshake')}</p></div>`);
 
     try {
       const data = await supabaseSignInWithGoogle();
       if (data?.url) {
         // 2. Redirect the popup to Google auth endpoint
         popup.location.href = data.url;
-        showBannerNotification("Popup opened. Complete your sign in on the Google page.", "success");
+        showBannerNotification(t('accountCreatedSuccess'), "success");
       } else {
         popup.close();
         throw new Error("Could not retrieve Google sign-in URL from Supabase.");
@@ -791,7 +817,7 @@ export default function App() {
     } catch (error: any) {
       console.error(error);
       popup.close();
-      showBannerNotification(error.message || "Google sign in failed.", "info");
+      showBannerNotification(error.message || t('registrationFailed'), "info");
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -800,12 +826,12 @@ export default function App() {
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!registerName.trim() || !registerEmail.trim() || !registerPassword.trim() || !registerConfirmPassword.trim()) {
-      showBannerNotification("Please fill in all registration fields.", "info");
+      showBannerNotification(t('pleaseFillRegFields'), "info");
       return;
     }
 
     if (registerPassword !== registerConfirmPassword) {
-      showBannerNotification("Passwords do not match.", "info");
+      showBannerNotification(t('passwordsDoNotMatch'), "info");
       return;
     }
 
@@ -817,7 +843,7 @@ export default function App() {
         registerName.trim(),
         registerStudentLevel
       );
-      showBannerNotification("Account created successfully! Check your email to verify or sign in.", "success");
+      showBannerNotification(t('accountCreatedSuccess'), "success");
       // Clear registration fields
       setRegisterName('');
       setRegisterEmail('');
@@ -826,7 +852,7 @@ export default function App() {
       setCurrentScreen('login');
     } catch (error: any) {
       console.error(error);
-      showBannerNotification(error.message || "Registration failed.", "info");
+      showBannerNotification(error.message || t('registrationFailed'), "info");
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -834,16 +860,16 @@ export default function App() {
 
   const handleForgotPassword = async () => {
     if (!loginEmail.trim()) {
-      showBannerNotification("Please enter your email address first.", "info");
+      showBannerNotification(t('enterEmailFirst'), "info");
       return;
     }
     setIsAuthSubmitting(true);
     try {
       await supabaseResetPassword(loginEmail.trim());
-      showBannerNotification(`A password reset link has been sent to ${loginEmail.trim()}.`, "success");
+      showBannerNotification(t('resetLinkSent', { email: loginEmail.trim() }), "success");
     } catch (error: any) {
       console.error(error);
-      showBannerNotification(error.message || "Failed to send reset email.", "info");
+      showBannerNotification(error.message || t('failedSendReset'), "info");
     } finally {
       setIsAuthSubmitting(false);
     }
@@ -867,13 +893,13 @@ export default function App() {
       setIsProfileMenuOpen(false);
 
       // Display precise toast message
-      showBannerNotification("You have successfully logged out.", "success");
+      showBannerNotification(t('loggedOutSuccess'), "success");
 
       // Redirect to login page
       setCurrentScreen('login');
     } catch (error: any) {
       console.error(error);
-      showBannerNotification("Failed to sign out.", "info");
+      showBannerNotification(t('failedSignOut'), "info");
     }
   };
 
@@ -897,7 +923,7 @@ export default function App() {
     if (currentScreen === 'preloader') {
       const timer = setTimeout(() => {
         setCurrentScreen('main');
-        showBannerNotification(`Good morning, ${currentUser?.fullName?.split(' ')[0] || 'Gabriel'}! MindStream synced.`, "info");
+        showBannerNotification(t('goodMorningSynced', { name: currentUser?.fullName?.split(' ')[0] || 'Gabriel' }), "info");
       }, 3500);
       return () => clearTimeout(timer);
     }
@@ -915,12 +941,12 @@ export default function App() {
     const newId = `conv-${Date.now()}`;
     const newConv: ChatConversation = {
       id: newId,
-      title: 'New Chat',
+      title: t('newChat'),
       messages: [
         {
           id: `msg-welcome-${Date.now()}`,
           role: 'assistant',
-          text: "Hello! I'm your MindStream AI Assistant. I can help you with:\n- 📅 **Create Study Schedules**: Plan out your weekly learning blocks.\n- 📝 **Prepare for Exams**: Map out high-yield review sheets & cards.\n- 💡 **Explain Concepts**: Unpack tricky science, engineering or humanities theories.\n- 🧠 **Generate Quiz Questions**: Build active recall practice sets.\n- ⚡ **Productivity Advice**: Maximize your focus and manage time with Pomodoro tactics.\n\nWhat are we studying today?",
+          text: t('aiAssistantWelcome'),
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ],
@@ -929,13 +955,13 @@ export default function App() {
     setConversations(prev => [newConv, ...prev]);
     setActiveConversationId(newId);
     setChatMessages(newConv.messages);
-    showBannerNotification("Started a new study session.", "success");
+    showBannerNotification(t('startedNewStudySession'), "success");
   };
 
   const handleDeleteConversation = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (conversations.length <= 1) {
-      showBannerNotification("You must keep at least one active chat session.", "info");
+      showBannerNotification(t('mustKeepOneChat'), "info");
       return;
     }
     const updated = conversations.filter(c => c.id !== id);
@@ -946,7 +972,7 @@ export default function App() {
       setActiveConversationId(nextActive);
       setChatMessages(updated[0].messages);
     }
-    showBannerNotification("Chat session deleted.", "info");
+    showBannerNotification(t('chatSessionDeleted'), "info");
   };
 
   const handleStartRename = (id: string, currentTitle: string, e: React.MouseEvent) => {
@@ -964,7 +990,7 @@ export default function App() {
       return updated;
     });
     setEditingConvId(null);
-    showBannerNotification("Conversation renamed.", "success");
+    showBannerNotification(t('conversationRenamed'), "success");
   };
 
   // Render markdown bolds, links, and lists into custom styled React elements
@@ -991,7 +1017,7 @@ export default function App() {
         }
         // Add strong element
         parts.push(
-          <strong key={match.index} className="font-extrabold text-[#3525cd] dark:text-[#7f75f0]">
+          <strong key={match.index} className="font-extrabold text-brand dark:text-brand">
             {match[1]}
           </strong>
         );
@@ -1011,13 +1037,13 @@ export default function App() {
 
       if (isBullet) {
         return (
-          <li key={idx} className="ml-4 list-disc pl-1 text-xs md:text-sm leading-relaxed mt-1 first:mt-0 text-[#151c27] dark:text-[#e2e8f0]">
+          <li key={idx} className="ml-4 list-disc pl-1 text-xs md:text-sm leading-relaxed mt-1 first:mt-0 text-main-text dark:text-[#e2e8f0]">
             {lineElement}
           </li>
         );
       } else {
         return (
-          <p key={idx} className="text-xs md:text-sm leading-relaxed min-h-[1.25rem] text-[#151c27] dark:text-[#e2e8f0]">
+          <p key={idx} className="text-xs md:text-sm leading-relaxed min-h-[1.25rem] text-main-text dark:text-[#e2e8f0]">
             {lineElement}
           </p>
         );
@@ -1104,7 +1130,7 @@ export default function App() {
       const errMessage: ChatMessage = {
         id: `msg-err-${Date.now()}`,
         role: 'assistant',
-        text: "I met with a temporary network issue querying Gemini. Let's try again! (Verify your GEMINI_API_KEY in the Secrets panel if needed).",
+        text: t('networkIssueGemini'),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setChatMessages((prev) => [...prev, errMessage]);
@@ -1117,7 +1143,7 @@ export default function App() {
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskTitle.trim() || !taskSubject.trim()) {
-      showBannerNotification("Please supply both a task title and high-yield course subject.", "info");
+      showBannerNotification(t('supplyTaskTitleSubject'), "info");
       return;
     }
 
@@ -1143,14 +1169,14 @@ export default function App() {
       setTaskPriority('medium');
       setTaskNotes('');
 
-      showBannerNotification(`Updated task: "${updatedTask.title}" successfully.`, "success");
+      showBannerNotification(t('updatedTaskSuccess', { title: updatedTask.title }), "success");
 
       if (user && isValidUuid(updatedTask.id)) {
         try {
           const { error } = await resilientUpdate('tasks', updatedTask.id, user.id, taskToDb(updatedTask, user.id));
           if (error) {
             console.error('Failed to update task in Supabase:', error);
-            showBannerNotification("Updated locally, but failed to sync to cloud.", "info");
+            showBannerNotification(t('savedLocallyFailedCloud'), "info");
           }
         } catch (err) {
           console.error('Task update error:', err);
@@ -1180,14 +1206,14 @@ export default function App() {
       setTaskPriority('medium');
       setTaskNotes('');
 
-      showBannerNotification(`Saved task: "${newTask.title}" successfully.`, "success");
+      showBannerNotification(t('savedTaskSuccess', { title: newTask.title }), "success");
 
       if (user) {
         try {
           const { error } = await resilientInsert('tasks', taskToDb(newTask, user.id));
           if (error) {
             console.error('Failed to save task to Supabase:', error);
-            showBannerNotification("Saved locally, but failed to sync to cloud.", "info");
+            showBannerNotification(t('savedLocallyFailedCloud'), "info");
           }
         } catch (err) {
           console.error('Task insert error:', err);
@@ -1241,7 +1267,7 @@ export default function App() {
         return t;
       })
     );
-    showBannerNotification("Task progression status synced.", "success");
+    showBannerNotification(t('taskProgressionSynced'), "success");
 
     if (user && updatedTask && isValidUuid(taskId)) {
       try {
@@ -1259,7 +1285,7 @@ export default function App() {
   // Remove a task completely
   const deleteTask = async (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    showBannerNotification("Academic task removed from log.", "info");
+    showBannerNotification(t('taskRemoved'), "info");
 
     if (user && isValidUuid(taskId)) {
       try {
@@ -1279,7 +1305,7 @@ export default function App() {
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventTitle.trim() || !eventLocation.trim() || !eventSubject.trim()) {
-      showBannerNotification("Please fill in event title, location, and subject.", "info");
+      showBannerNotification(t('supplyEventFields'), "info");
       return;
     }
 
@@ -1309,14 +1335,14 @@ export default function App() {
       setEventType('study');
       setEventSubject('');
 
-      showBannerNotification(`Updated event: "${updatedEvent.title}" successfully.`, "success");
+      showBannerNotification(t('updatedEventSuccess', { title: updatedEvent.title }), "success");
 
       if (user && isValidUuid(updatedEvent.id)) {
         try {
           const { error } = await resilientUpdate('events', updatedEvent.id, user.id, eventToDb(updatedEvent, user.id));
           if (error) {
             console.error('Failed to update event in Supabase:', error);
-            showBannerNotification("Updated locally, but failed to sync to cloud.", "info");
+            showBannerNotification(t('savedLocallyFailedCloud'), "info");
           }
         } catch (err) {
           console.error('Event update error:', err);
@@ -1348,7 +1374,7 @@ export default function App() {
       setEventType('study');
       setEventSubject('');
 
-      showBannerNotification(`Saved event: "${newEvent.title}" successfully.`, "success");
+      showBannerNotification(t('savedEventSuccess', { title: newEvent.title }), "success");
 
       if (user) {
         try {
@@ -1359,7 +1385,7 @@ export default function App() {
 
           if (error) {
             console.error('Failed to save event to Supabase:', error);
-            showBannerNotification("Saved locally, but failed to sync to cloud.", "info");
+            showBannerNotification(t('savedLocallyFailedCloud'), "info");
           }
         } catch (err) {
           console.error('Event insert error:', err);
@@ -1394,7 +1420,7 @@ export default function App() {
 
   const deleteEvent = async (eventId: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
-    showBannerNotification("Event removed from calendar.", "info");
+    showBannerNotification(t('eventRemoved'), "info");
 
     if (user && isValidUuid(eventId)) {
       try {
@@ -1444,9 +1470,26 @@ export default function App() {
     return tasks.filter(t => t.dueDate === todayStr);
   }, [tasks]);
 
+  const upcomingDeadlines = tasks
+    .filter(task => task.status !== 'completed')
+    .sort(
+      (a, b) =>
+        new Date(a.dueDate).getTime() -
+        new Date(b.dueDate).getTime()
+    )
+    .slice(0, 2);
+  const upcomingHighlights = events
+    .filter(event => new Date(event.date) >= new Date())
+    .sort(
+      (a, b) =>
+        new Date(a.date).getTime() -
+        new Date(b.date).getTime()
+    )
+    .slice(0, 2);
+
   // Dynamic study calculations
   const todayStudyHours = useMemo(() => {
-    if (studySessions.length === 0) return 1.5; // Default baseline representation
+    if (studySessions.length === 0) return 0;
     const todayStr = new Date().toDateString();
     const todaySessions = studySessions.filter(s => {
       const d = s.completed_at || s.completedAt;
@@ -1461,7 +1504,7 @@ export default function App() {
   }, [studySessions]);
 
   const weeklyStudyHours = useMemo(() => {
-    if (studySessions.length === 0) return 4.5; // Default baseline representation
+    if (studySessions.length === 0) return 0;
     const now = new Date();
     // Get start of this week (Monday)
     const day = now.getDay();
@@ -1482,7 +1525,13 @@ export default function App() {
   }, [studySessions]);
 
   return (
-    <div id="mindstream-workspace" className={`min-h-screen relative selection:bg-[#4f46e5]/20 font-sans transition-colors duration-300 ${darkMode ? 'dark bg-[#0f111a] text-[#f3f4f6]' : 'bg-[#f9f9ff] text-[#151c27]'}`}>
+    <div
+      id="mindstream-workspace"
+      className={`min-h-screen relative selection:bg-brand/20 font-sans transition-colors duration-300 ${isDarkActive
+        ? 'dark bg-main-bg text-main-text'
+        : 'bg-main-bg text-main-text'
+        }`}
+    >
 
       {/* Banner Notifications overlay */}
       <AnimatePresence>
@@ -1491,10 +1540,10 @@ export default function App() {
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl glass-panel border border-[#4f46e5]/20 flex items-center gap-3"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-xl glass-panel border border-brand/20 flex items-center gap-3"
           >
-            <div className={`w-2.5 h-2.5 rounded-full ${notification.type === 'success' ? 'bg-[#10B981]' : 'bg-[#4f46e5]'}`} />
-            <p className="text-sm font-semibold tracking-tight text-[#151c27]">{notification.message}</p>
+            <div className={`w-2.5 h-2.5 rounded-full ${notification.type === 'success' ? 'bg-[#10B981]' : 'bg-brand'}`} />
+            <p className="text-sm font-semibold tracking-tight text-main-text">{notification.message}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1503,19 +1552,19 @@ export default function App() {
       {currentScreen === 'onboarding' && (
         <div id="screen-onboarding" className="h-screen w-full flex flex-col justify-between overflow-hidden relative py-12 px-6">
           <div className="absolute inset-0 pointer-events-none z-0">
-            <div className="absolute top-0 right-0 w-80 h-80 bg-[#3525cd]/5 rounded-full blur-3xl" />
+            <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 rounded-full blur-3xl" />
             <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#10B981]/5 rounded-full blur-3xl" />
           </div>
 
           <div className="flex justify-between items-center max-w-md w-full mx-auto relative z-10">
             <div className="flex items-center gap-2">
-              <BookOpen className="text-[#3525cd] w-6 h-6" />
-              <span className="font-bold text-lg tracking-tight text-[#3525cd]">MindStream</span>
+              <BookOpen className="text-brand w-6 h-6" />
+              <span className="font-bold text-lg tracking-tight text-brand">{t('appName')}</span>
             </div>
             <button
               id="skipBtn"
               onClick={handleOnboardingSkip}
-              className="text-sm font-semibold text-[#777587] hover:text-[#3525cd] transition-colors"
+              className="text-sm font-semibold text-muted-text hover:text-brand transition-colors"
             >
               Skip
             </button>
@@ -1533,7 +1582,7 @@ export default function App() {
                   transition={{ duration: 0.3 }}
                   className="flex flex-col items-center text-center space-y-6"
                 >
-                  <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
+                  <div className="w-full aspect-square rounded-2xl bg-brand-light flex items-center justify-center p-6 shadow-sm border border-main-border overflow-hidden">
                     <img
                       className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
                       src={IMAGES.illustrationSlide1}
@@ -1542,9 +1591,9 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-[#3525cd] tracking-tight">Organize Your Studies</h2>
-                    <p className="text-sm text-[#464555] max-w-sm mx-auto mt-2 leading-relaxed">
-                      Centralize your curriculum and research. Build a knowledge base that grows with your academic journey.
+                    <h2 className="text-2xl font-bold text-brand tracking-tight">{t('organizeYourStudies')}</h2>
+                    <p className="text-sm text-secondary-text max-w-sm mx-auto mt-2 leading-relaxed">
+                      {t('organizeYourStudiesDesc')}
                     </p>
                   </div>
                 </motion.div>
@@ -1559,7 +1608,7 @@ export default function App() {
                   transition={{ duration: 0.3 }}
                   className="flex flex-col items-center text-center space-y-6"
                 >
-                  <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
+                  <div className="w-full aspect-square rounded-2xl bg-brand-light flex items-center justify-center p-6 shadow-sm border border-main-border overflow-hidden">
                     <img
                       className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
                       src={IMAGES.illustrationSlide2}
@@ -1568,9 +1617,9 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-[#3525cd] tracking-tight">Stay on Track</h2>
-                    <p className="text-sm text-[#464555] max-w-sm mx-auto mt-2 leading-relaxed">
-                      Intelligent deadline reminders and task prioritization help you manage your cognitive load without the stress.
+                    <h2 className="text-2xl font-bold text-brand tracking-tight">{t('stayOnTrack')}</h2>
+                    <p className="text-sm text-secondary-text max-w-sm mx-auto mt-2 leading-relaxed">
+                      {t('stayOnTrackDesc')}
                     </p>
                   </div>
                 </motion.div>
@@ -1585,7 +1634,7 @@ export default function App() {
                   transition={{ duration: 0.3 }}
                   className="flex flex-col items-center text-center space-y-6"
                 >
-                  <div className="w-full aspect-square rounded-2xl bg-[#f0f3ff] flex items-center justify-center p-6 shadow-sm border border-[#dce2f3] overflow-hidden">
+                  <div className="w-full aspect-square rounded-2xl bg-brand-light flex items-center justify-center p-6 shadow-sm border border-main-border overflow-hidden">
                     <img
                       className="w-full h-full object-contain hover:scale-105 transition-transform duration-700"
                       src={IMAGES.illustrationSlide3}
@@ -1594,9 +1643,9 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-[#3525cd] tracking-tight">Achieve Your Goals</h2>
-                    <p className="text-sm text-[#464555] max-w-sm mx-auto mt-2 leading-relaxed">
-                      Celebrate every milestone. Track your progress with data-driven insights and finish your semester strong.
+                    <h2 className="text-2xl font-bold text-brand tracking-tight">{t('achieveYourGoals')}</h2>
+                    <p className="text-sm text-secondary-text max-w-sm mx-auto mt-2 leading-relaxed">
+                      {t('achieveYourGoalsDesc')}
                     </p>
                   </div>
                 </motion.div>
@@ -1610,7 +1659,7 @@ export default function App() {
               {[0, 1, 2].map((idx) => (
                 <div
                   key={idx}
-                  className={`h-2.5 rounded-full transition-all duration-300 ${onboardingSlide === idx ? 'w-8 bg-[#3525cd]' : 'w-2.5 bg-[#c7c4d8]'}`}
+                  className={`h-2.5 rounded-full transition-all duration-300 ${onboardingSlide === idx ? 'w-8 bg-brand' : 'w-2.5 bg-main-border'}`}
                 />
               ))}
             </div>
@@ -1619,9 +1668,9 @@ export default function App() {
             <button
               id="nextBtn"
               onClick={handleOnboardingNext}
-              className="w-full max-w-xs py-4 bg-[#3525cd] text-white rounded-full font-semibold shadow-lg hover:bg-[#3525cd]/90 transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm tracking-tight"
+              className="w-full max-w-xs py-4 bg-brand text-white rounded-full font-semibold shadow-lg hover:bg-brand/90 transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm tracking-tight"
             >
-              <span>{onboardingSlide === 2 ? 'Get Started' : 'Next'}</span>
+              <span>{onboardingSlide === 2 ? t('getStarted') : t('next')}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -1632,7 +1681,7 @@ export default function App() {
       {currentScreen === 'login' && (
         <div id="screen-login" className="min-h-screen w-full flex flex-col items-center justify-center relative px-4 py-8">
           <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-            <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#3525cd]/10 rounded-full blur-3xl animate-pulse" />
+            <div className="absolute -top-40 -left-40 w-96 h-96 bg-brand/10 rounded-full blur-3xl animate-pulse" />
             <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-[#10b981]/10 rounded-full blur-3xl animate-pulse" />
           </div>
 
@@ -1640,36 +1689,36 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="w-full max-w-md bg-white/95 dark:bg-[#161925]/95 backdrop-blur-md rounded-3xl border border-[#e2e8f8] dark:border-[#2a2f45] p-8 shadow-xl relative z-10 space-y-6"
+            className="w-full max-w-md bg-white/95 dark:bg-card-bg/95 dark:bg-card-bg/95 backdrop-blur-md rounded-3xl border border-main-border dark:border-main-border p-8 shadow-xl relative z-10 space-y-6"
           >
             {/* Header / Logo */}
             <div className="text-center space-y-2">
-              <div className="inline-flex w-12 h-12 items-center justify-center bg-[#f0f3ff] dark:bg-[#1e2235] rounded-2xl border border-[#dce2f3] dark:border-[#2a2f45] text-[#3525cd] dark:text-[#7f75f0] shadow-sm mb-2">
+              <div className="inline-flex w-12 h-12 items-center justify-center bg-brand-light dark:bg-brand-light rounded-2xl border border-main-border dark:border-main-border text-brand dark:text-brand shadow-sm mb-2">
                 <BookOpen className="w-6 h-6" />
               </div>
-              <h2 className="text-3xl font-extrabold text-[#151c27] dark:text-white tracking-tight">Welcome to MindStream</h2>
-              <p className="text-sm text-[#777587] dark:text-[#9ca3af]">Please sign in to continue your academic journey</p>
+              <h2 className="text-3xl font-extrabold text-main-text dark:text-main-text tracking-tight">{t('welcomeToMindstream')}</h2>
+              <p className="text-sm text-muted-text dark:text-muted-text">{t('pleaseSignIn')}</p>
             </div>
 
             {/* Form */}
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               {/* Email */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="login-email">
-                  Email Address
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="login-email">
+                  {t('emailAddress')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <Mail className="w-4 h-4" />
                   </span>
                   <input
                     id="login-email"
                     type="email"
                     required
-                    placeholder="name@university.edu"
+                    placeholder={t('nameUniversityPlaceholder')}
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
@@ -1677,29 +1726,29 @@ export default function App() {
               {/* Password */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="login-password">
-                    Password
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="login-password">
+                    {t('password')}
                   </label>
                   <button
                     type="button"
                     onClick={handleForgotPassword}
-                    className="text-xs font-semibold text-[#3525cd] dark:text-[#7f75f0] hover:underline"
+                    className="text-xs font-semibold text-brand dark:text-brand hover:underline"
                   >
-                    Forgot password?
+                    {t('forgotPassword')}
                   </button>
                 </div>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <Lock className="w-4 h-4" />
                   </span>
                   <input
                     id="login-password"
                     type="password"
                     required
-                    placeholder="Enter your security password"
+                    placeholder={t('securityPasswordPlaceholder')}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
@@ -1711,9 +1760,9 @@ export default function App() {
                     type="checkbox"
                     checked={loginRememberMe}
                     onChange={(e) => setLoginRememberMe(e.target.checked)}
-                    className="w-4.5 h-4.5 rounded border-[#e2e8f8] dark:border-[#2a2f45] dark:bg-[#1e2235] text-[#3525cd] dark:text-[#7f75f0] focus:ring-[#3525cd]/20"
+                    className="w-4.5 h-4.5 rounded border-main-border dark:border-main-border dark:bg-brand-light text-brand dark:text-brand focus:ring-brand/20"
                   />
-                  <span className="text-sm text-[#464555] dark:text-[#d1d5db] font-medium">Remember me</span>
+                  <span className="text-sm text-secondary-text dark:text-[#d1d5db] font-medium">{t('rememberMe')}</span>
                 </label>
               </div>
 
@@ -1722,19 +1771,19 @@ export default function App() {
                 id="btn-login-signin"
                 type="submit"
                 disabled={isAuthSubmitting}
-                className="w-full py-3.5 mt-2 bg-[#3525cd] text-white rounded-2xl font-semibold shadow-md hover:bg-[#3525cd]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm"
+                className="w-full py-3.5 mt-2 bg-brand text-white rounded-2xl font-semibold shadow-md hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm"
               >
-                <span>{isAuthSubmitting ? 'Signing In...' : 'Sign In'}</span>
+                <span>{isAuthSubmitting ? t('signingIn') : t('signIn')}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
 
             <div className="relative flex items-center justify-center my-4">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[#e2e8f8] dark:border-[#2a2f45]" />
+                <div className="w-full border-t border-main-border dark:border-main-border" />
               </div>
-              <span className="relative px-3 bg-white dark:bg-[#161925] text-xs font-bold uppercase tracking-widest text-[#9ca3af]">
-                or
+              <span className="relative px-3 bg-white dark:bg-card-bg text-xs font-bold uppercase tracking-widest text-[#9ca3af]">
+                {t('or')}
               </span>
             </div>
 
@@ -1743,7 +1792,7 @@ export default function App() {
               id="btn-login-google"
               type="button"
               onClick={handleGoogleSignIn}
-              className="w-full py-3.5 border border-[#e2e8f8] dark:border-[#2a2f45] hover:bg-[#f9f9ff] dark:hover:bg-[#1e2235] text-[#151c27] dark:text-white rounded-2xl font-semibold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2.5 text-sm"
+              className="w-full py-3.5 border border-main-border dark:border-main-border hover:bg-main-bg dark:hover:bg-brand-light text-main-text dark:text-main-text rounded-2xl font-semibold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2.5 text-sm"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path
@@ -1763,18 +1812,18 @@ export default function App() {
                   d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.66-2.84c-1.01.68-2.31 1.08-4.3 1.08-3.26 0-6.07-2.33-7.05-5.63L1.16 16.63C3.12 20.63 7.16 23 12 23z"
                 />
               </svg>
-              <span>Continue with Google</span>
+              <span>{t('continueWithGoogle')}</span>
             </button>
 
             {/* Create Account Link */}
-            <p className="text-center text-sm text-[#464555] dark:text-[#9ca3af]">
-              Don't have an account?{' '}
+            <p className="text-center text-sm text-secondary-text dark:text-muted-text">
+              {t('dontHaveAccount')}{' '}
               <button
                 type="button"
                 onClick={() => setCurrentScreen('register')}
-                className="font-bold text-[#3525cd] dark:text-[#7f75f0] hover:underline"
+                className="font-bold text-brand dark:text-brand hover:underline"
               >
-                Create Account
+                {t('createAccount')}
               </button>
             </p>
           </motion.div>
@@ -1785,7 +1834,7 @@ export default function App() {
       {currentScreen === 'register' && (
         <div id="screen-register" className="min-h-screen w-full flex flex-col items-center justify-center relative px-4 py-8">
           <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-            <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#3525cd]/10 rounded-full blur-3xl animate-pulse" />
+            <div className="absolute -top-40 -left-40 w-96 h-96 bg-brand/10 rounded-full blur-3xl animate-pulse" />
             <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-[#10b981]/10 rounded-full blur-3xl animate-pulse" />
           </div>
 
@@ -1793,85 +1842,85 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="w-full max-w-md bg-white/95 dark:bg-[#161925]/95 backdrop-blur-md rounded-3xl border border-[#e2e8f8] dark:border-[#2a2f45] p-8 shadow-xl relative z-10 space-y-6"
+            className="w-full max-w-md bg-white/95 dark:bg-card-bg/95 dark:bg-card-bg/95 backdrop-blur-md rounded-3xl border border-main-border dark:border-main-border p-8 shadow-xl relative z-10 space-y-6"
           >
             {/* Header */}
             <div className="text-center space-y-2">
-              <div className="inline-flex w-12 h-12 items-center justify-center bg-[#f0f3ff] dark:bg-[#1e2235] rounded-2xl border border-[#dce2f3] dark:border-[#2a2f45] text-[#3525cd] dark:text-[#7f75f0] shadow-sm mb-2">
+              <div className="inline-flex w-12 h-12 items-center justify-center bg-brand-light dark:bg-brand-light rounded-2xl border border-main-border dark:border-main-border text-brand dark:text-brand shadow-sm mb-2">
                 <BookOpen className="w-6 h-6" />
               </div>
-              <h2 className="text-3xl font-extrabold text-[#151c27] dark:text-white tracking-tight">Create Account</h2>
-              <p className="text-sm text-[#777587] dark:text-[#9ca3af]">Join MindStream to plan and optimize your studies</p>
+              <h2 className="text-3xl font-extrabold text-main-text dark:text-main-text tracking-tight">{t('createAccount')}</h2>
+              <p className="text-sm text-muted-text dark:text-muted-text">{t('joinMindstream')}</p>
             </div>
 
             {/* Form */}
             <form onSubmit={handleRegisterSubmit} className="space-y-4">
               {/* Full Name */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="register-name">
-                  Full Name
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="register-name">
+                  {t('fullName')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <User className="w-4 h-4" />
                   </span>
                   <input
                     id="register-name"
                     type="text"
                     required
-                    placeholder="Gabriel Semesco"
+                    placeholder={t('gabrielSemescoPlaceholder')}
                     value={registerName}
                     onChange={(e) => setRegisterName(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
 
               {/* Email */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="register-email">
-                  Email Address
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="register-email">
+                  {t('emailAddress')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <Mail className="w-4 h-4" />
                   </span>
                   <input
                     id="register-email"
                     type="email"
                     required
-                    placeholder="gabsemesco1@gmail.com"
+                    placeholder={t('gabsemescoEmailPlaceholder')}
                     value={registerEmail}
                     onChange={(e) => setRegisterEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
 
               {/* Student Level Selection */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="register-level">
-                  Student Level Selection
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="register-level">
+                  {t('studentLevelSelection')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <School className="w-4 h-4" />
                   </span>
                   <select
                     id="register-level"
                     value={registerStudentLevel}
                     onChange={(e) => setRegisterStudentLevel(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all appearance-none cursor-pointer"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all appearance-none cursor-pointer"
                   >
-                    <option value="High School">High School</option>
-                    <option value="Undergraduate (First Year)">Undergraduate (First Year)</option>
-                    <option value="Undergraduate (Sophomore)">Undergraduate (Sophomore)</option>
-                    <option value="Undergraduate (Junior)">Undergraduate (Junior)</option>
-                    <option value="Undergraduate (Senior)">Undergraduate (Senior)</option>
-                    <option value="Postgraduate / PhD">Postgraduate / PhD</option>
-                    <option value="Lifelong Learner">Lifelong Learner</option>
+                    <option value="High School">{t('levelHighSchool')}</option>
+                    <option value="Undergraduate (First Year)">{t('levelUndergradFirst')}</option>
+                    <option value="Undergraduate (Sophomore)">{t('levelUndergradSophomore')}</option>
+                    <option value="Undergraduate (Junior)">{t('levelUndergradJunior')}</option>
+                    <option value="Undergraduate (Senior)">{t('levelUndergradSenior')}</option>
+                    <option value="Postgraduate / PhD">{t('levelPostgrad')}</option>
+                    <option value="Lifelong Learner">{t('levelLifelong')}</option>
                   </select>
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted-text dark:text-muted-text">
                     <ChevronDown className="w-4 h-4" />
                   </span>
                 </div>
@@ -1879,42 +1928,42 @@ export default function App() {
 
               {/* Password */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="register-password">
-                  Password
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="register-password">
+                  {t('password')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <Lock className="w-4 h-4" />
                   </span>
                   <input
                     id="register-password"
                     type="password"
                     required
-                    placeholder="Create a strong password"
+                    placeholder={t('strongPasswordPlaceholder')}
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
 
               {/* Confirm Password */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#777587] dark:text-[#9ca3af]" htmlFor="register-confirm">
-                  Confirm Password
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-text dark:text-muted-text" htmlFor="register-confirm">
+                  {t('confirmPassword')}
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#777587] dark:text-[#9ca3af]">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted-text dark:text-muted-text">
                     <Lock className="w-4 h-4" />
                   </span>
                   <input
                     id="register-confirm"
                     type="password"
                     required
-                    placeholder="Confirm your password"
+                    placeholder={t('confirmPasswordPlaceholder')}
                     value={registerConfirmPassword}
                     onChange={(e) => setRegisterConfirmPassword(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-[#f9f9ff] dark:bg-[#12141d] border border-[#e2e8f8] dark:border-[#2a2f45] text-[#151c27] dark:text-white rounded-2xl text-sm focus:outline-none focus:border-[#3525cd] dark:focus:border-[#7f75f0] focus:ring-1 focus:ring-[#3525cd] transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-main-bg dark:bg-main-bg border border-main-border dark:border-main-border text-main-text dark:text-main-text rounded-2xl text-sm focus:outline-none focus:border-brand dark:focus:border-brand focus:ring-1 focus:ring-brand transition-all"
                   />
                 </div>
               </div>
@@ -1924,19 +1973,19 @@ export default function App() {
                 id="btn-register-signup"
                 type="submit"
                 disabled={isAuthSubmitting}
-                className="w-full py-3.5 mt-2 bg-[#3525cd] text-white rounded-2xl font-semibold shadow-md hover:bg-[#3525cd]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm"
+                className="w-full py-3.5 mt-2 bg-brand text-white rounded-2xl font-semibold shadow-md hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 text-sm"
               >
-                <span>{isAuthSubmitting ? 'Creating Account...' : 'Create Account'}</span>
+                <span>{isAuthSubmitting ? t('creatingAccount') : t('createAccount')}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
 
             <div className="relative flex items-center justify-center my-1">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[#e2e8f8] dark:border-[#2a2f45]" />
+                <div className="w-full border-t border-main-border dark:border-main-border" />
               </div>
-              <span className="relative px-3 bg-white dark:bg-[#161925] text-xs font-bold uppercase tracking-widest text-[#9ca3af]">
-                or
+              <span className="relative px-3 bg-white dark:bg-card-bg text-xs font-bold uppercase tracking-widest text-[#9ca3af]">
+                {t('or')}
               </span>
             </div>
 
@@ -1946,7 +1995,7 @@ export default function App() {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isAuthSubmitting}
-              className="w-full py-3.5 border border-[#e2e8f8] dark:border-[#2a2f45] hover:bg-[#f9f9ff] dark:hover:bg-[#1e2235] text-[#151c27] dark:text-white rounded-2xl font-semibold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3.5 border border-main-border dark:border-main-border hover:bg-main-bg dark:hover:bg-brand-light text-main-text dark:text-main-text rounded-2xl font-semibold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path
@@ -1966,19 +2015,19 @@ export default function App() {
                   d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.66-2.84c-1.01.68-2.31 1.08-4.3 1.08-3.26 0-6.07-2.33-7.05-5.63L1.16 16.63C3.12 20.63 7.16 23 12 23z"
                 />
               </svg>
-              <span>Continue with Google</span>
+              <span>{t('continueWithGoogle')}</span>
             </button>
 
             {/* Link back to Login */}
-            <p className="text-center text-sm text-[#464555] dark:text-[#9ca3af] pt-2">
-              Already have an account?{' '}
+            <p className="text-center text-sm text-secondary-text dark:text-muted-text pt-2">
+              {t('alreadyHaveAccount')}{' '}
               <button
                 type="button"
                 onClick={() => setCurrentScreen('login')}
-                className="font-bold text-[#3525cd] dark:text-[#7f75f0] hover:underline flex items-center justify-center gap-1.5 mx-auto"
+                className="font-bold text-brand dark:text-brand hover:underline flex items-center justify-center gap-1.5 mx-auto"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Sign In</span>
+                <span>{t('backToSignIn')}</span>
               </button>
             </p>
           </motion.div>
@@ -1989,35 +2038,35 @@ export default function App() {
       {currentScreen === 'preloader' && (
         <div id="screen-preloader" className="h-screen w-full flex flex-col items-center justify-center relative px-6 text-center">
           <div className="absolute inset-0 pointer-events-none z-0">
-            <div className="absolute -top-24 -left-24 w-96 h-96 bg-[#3525cd]/10 rounded-full blur-3xl animate-pulse" />
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/10 rounded-full blur-3xl animate-pulse" />
             <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-[#10B981]/10 rounded-full blur-3xl animate-pulse" />
           </div>
 
           <div className="relative z-10 max-w-sm w-full space-y-12">
             <div className="relative inline-block mx-auto">
-              <div className="absolute inset-0 bg-[#3525cd]/20 blur-xl rounded-full scale-150 animate-pulse" />
-              <div className="relative w-24 h-24 flex items-center justify-center bg-white dark:bg-[#161925] rounded-3xl shadow-xl border border-[#e2e8f8] dark:border-[#2a2f45]">
-                <BookOpen className="text-[#3525cd] dark:text-[#7f75f0] w-12 h-12" />
+              <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full scale-150 animate-pulse" />
+              <div className="relative w-24 h-24 flex items-center justify-center bg-white dark:bg-card-bg rounded-3xl shadow-xl border border-main-border dark:border-main-border">
+                <BookOpen className="text-brand dark:text-brand w-12 h-12" />
               </div>
             </div>
 
             <div className="space-y-2">
-              <h1 className="text-4xl font-extrabold text-[#3525cd] dark:text-[#7f75f0] tracking-tight">MindStream</h1>
-              <p className="text-md text-[#464555] dark:text-[#9ca3af] font-medium leading-relaxed">Study Smarter, Not Harder.</p>
+              <h1 className="text-4xl font-extrabold text-brand dark:text-brand tracking-tight">{t('appName')}</h1>
+              <p className="text-md text-secondary-text dark:text-muted-text font-medium leading-relaxed">{t('studySmarter')}</p>
             </div>
 
             {/* Loading Bar Experience */}
             <div className="space-y-4">
-              <div className="h-2 w-full bg-[#dce2f3] dark:bg-[#2a2f45] rounded-full overflow-hidden relative">
+              <div className="h-2 w-full bg-[#dce2f3] dark:bg-brand-light rounded-full overflow-hidden relative">
                 <motion.div
                   initial={{ width: '0%' }}
                   animate={{ width: '100%' }}
                   transition={{ duration: 3, ease: "easeInOut" }}
-                  className="h-full bg-[#3525cd] dark:bg-[#7f75f0] rounded-full"
+                  className="h-full bg-brand dark:bg-brand rounded-full"
                 />
               </div>
-              <p className="text-xs uppercase tracking-wider font-bold text-[#777587] dark:text-[#9ca3af] animate-pulse">
-                Optimizing your flow...
+              <p className="text-xs uppercase tracking-wider font-bold text-muted-text dark:text-muted-text animate-pulse">
+                {t('optimizingFlow')}
               </p>
             </div>
           </div>
@@ -2029,16 +2078,16 @@ export default function App() {
         <div id="screen-main-app" className="flex flex-col min-h-screen pb-24 md:pb-0">
 
           {/* Top Sticky App Bar Header */}
-          <header className="sticky top-0 w-full z-40 backdrop-blur-md bg-[#f9f9ff]/80 dark:bg-[#0f111a]/80 shadow-sm border-b border-[#e2e8f8] dark:border-[#2a2f45] h-16 flex items-center justify-between px-4 md:px-8 max-w-7xl mx-auto transition-colors duration-300">
+          <header className="sticky top-0 w-full z-40 backdrop-blur-md bg-main-bg/80 dark:bg-main-bg/80 shadow-sm border-b border-main-border dark:border-main-border h-16 flex items-center justify-between px-4 md:px-8 max-w-7xl mx-auto transition-colors duration-300">
             <div className="flex items-center gap-3 relative">
               {/* Profile trigger with downward arrow */}
               <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                className="flex items-center gap-1.5 focus:outline-none hover:opacity-90 active:scale-95 transition-all p-1 rounded-full hover:bg-[#e2e8f8]/50 dark:hover:bg-[#2a2f45]/50 group"
+                className="flex items-center gap-1.5 focus:outline-none hover:opacity-90 active:scale-95 transition-all p-1 rounded-full hover:bg-brand-light/50 dark:hover:bg-brand-light/50 group"
                 id="btn-profile-avatar"
-                title="Profile Menu"
+                title={t('profileMenu')}
               >
-                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#3525cd]/15 dark:border-[#3525cd]/30 relative shadow-sm">
+                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-brand/15 dark:border-brand/30 relative shadow-sm">
                   <img
                     className="w-full h-full object-cover"
                     src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
@@ -2046,11 +2095,11 @@ export default function App() {
                     referrerPolicy="no-referrer"
                   />
                 </div>
-                <ChevronDown className="w-4 h-4 text-[#777587] dark:text-[#9ca3af] group-hover:text-[#3525cd] dark:group-hover:text-[#7f75f0] transition-colors" />
+                <ChevronDown className="w-4 h-4 text-muted-text dark:text-muted-text group-hover:text-brand dark:group-hover:text-brand transition-colors" />
               </button>
 
-              <h1 onClick={() => setActiveTab('dashboard')} className="text-lg md:text-xl font-extrabold text-[#3525cd] dark:text-[#7f75f0] tracking-tight cursor-pointer">
-                MindStream
+              <h1 onClick={() => setActiveTab('dashboard')} className="text-lg md:text-xl font-extrabold text-brand dark:text-brand tracking-tight cursor-pointer">
+                {t('appName')}
               </h1>
 
               {/* DESKTOP DROPDOWN */}
@@ -2068,12 +2117,12 @@ export default function App() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 15, scale: 0.95 }}
                       transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="absolute top-14 left-0 w-80 bg-white dark:bg-[#161925] border border-[#e2e8f8] dark:border-[#2a2f45] rounded-2xl shadow-2xl z-50 p-4 hidden md:flex flex-col gap-4 text-left"
+                      className="absolute top-14 left-0 w-80 bg-white dark:bg-card-bg border border-main-border dark:border-main-border rounded-2xl shadow-2xl z-50 p-4 hidden md:flex flex-col gap-4 text-left"
                       id="profile-desktop-dropdown"
                     >
                       {/* Top Profile Banner */}
-                      <div className="flex items-center gap-3.5 pb-3.5 border-b border-[#e2e8f8] dark:border-[#2a2f45]">
-                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#3525cd]/10 shrink-0">
+                      <div className="flex items-center gap-3.5 pb-3.5 border-b border-main-border dark:border-main-border">
+                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-brand/10 shrink-0">
                           <img
                             src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
                             alt="User profile"
@@ -2082,26 +2131,26 @@ export default function App() {
                           />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-[#151c27] dark:text-[#f3f4f6] text-sm truncate">
+                          <h4 className="font-bold text-main-text dark:text-main-text text-sm truncate">
                             {currentUser?.fullName || 'Gabriel Semesco'}
                           </h4>
-                          <p className="text-xs text-[#777587] dark:text-[#9ca3af] truncate">
+                          <p className="text-xs text-muted-text dark:text-muted-text truncate">
                             {currentUser?.email || 'gabsemesco1@gmail.com'}
                           </p>
                         </div>
                       </div>
 
                       {/* Streak & Score Banner */}
-                      <div className="grid grid-cols-2 gap-2 bg-[#f0f3ff] dark:bg-[#1e2235] p-3 rounded-xl border border-[#e2e8f8] dark:border-[#2a2f45] text-xs transition-colors duration-300">
+                      <div className="grid grid-cols-2 gap-2 bg-brand-light dark:bg-brand-light p-3 rounded-xl border border-main-border dark:border-main-border text-xs transition-colors duration-300">
                         <div className="flex flex-col">
-                          <span className="text-[10px] text-[#777587] dark:text-[#9ca3af] font-semibold uppercase tracking-wider">Streak</span>
-                          <span className="font-bold text-[#3525cd] dark:text-[#7f75f0] flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-muted-text dark:text-muted-text font-semibold uppercase tracking-wider">{t('streak')}</span>
+                          <span className="font-bold text-brand dark:text-brand flex items-center gap-1 mt-0.5">
                             <Flame className="w-3.5 h-3.5 fill-current text-[#ffb695]" />
-                            {streakDays} Days
+                            {streakDays} {t('days')}
                           </span>
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[10px] text-[#777587] dark:text-[#9ca3af] font-semibold uppercase tracking-wider">Productivity</span>
+                          <span className="text-[10px] text-muted-text dark:text-muted-text font-semibold uppercase tracking-wider">{t('productivity')}</span>
                           <span className="font-bold text-[#006f64] dark:text-[#2dd4bf] flex items-center gap-1 mt-0.5">
                             <Award className="w-3.5 h-3.5 text-[#006f64] dark:text-[#2dd4bf]" />
                             {productivityRatio}%
@@ -2116,68 +2165,70 @@ export default function App() {
                             setActiveTab('profile');
                             setIsProfileMenuOpen(false);
                           }}
-                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left"
+                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left"
                         >
-                          <User className="w-4 h-4 shrink-0 text-[#777587] dark:text-[#9ca3af]" />
-                          <span>My Profile</span>
+                          <User className="w-4 h-4 shrink-0 text-muted-text dark:text-muted-text" />
+                          <span>{t('myProfile')}</span>
                         </button>
 
                         <button
                           onClick={() => {
                             setActiveTab('profile');
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("Account Settings view loaded successfully.", "info");
+                            showBannerNotification(t('accountSettingsLoaded'), "info");
                           }}
-                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left"
+                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left"
                         >
-                          <Settings className="w-4 h-4 shrink-0 text-[#777587] dark:text-[#9ca3af]" />
-                          <span>Account Settings</span>
+                          <Settings className="w-4 h-4 shrink-0 text-muted-text dark:text-muted-text" />
+                          <span>{t('accountSettings')}</span>
                         </button>
 
                         <button
                           onClick={() => {
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("Notification Settings are already active and in sync.", "info");
+                            showBannerNotification(t('notificationSettingsActive'), "info");
                           }}
-                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left"
+                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left"
                         >
-                          <Bell className="w-4 h-4 shrink-0 text-[#777587] dark:text-[#9ca3af]" />
-                          <span>Notification Settings</span>
+                          <Bell className="w-4 h-4 shrink-0 text-muted-text dark:text-muted-text" />
+                          <span>{t('notificationSettings')}</span>
                         </button>
 
-                        {/* Dark Mode Toggle item */}
+                        {/* Theme Mode Toggle item */}
                         <button
                           type="button"
-                          onClick={() => setDarkMode(!darkMode)}
-                          className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left"
+                          onClick={() => {
+                            if (themeMode === 'light') setThemeMode('dark');
+                            else if (themeMode === 'dark') setThemeMode('system');
+                            else setThemeMode('light');
+                          }}
+                          className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left"
                         >
                           <div className="flex items-center gap-3">
-                            {darkMode ? (
-                              <Sun className="w-4 h-4 text-amber-500 shrink-0" />
-                            ) : (
-                              <Moon className="w-4 h-4 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                            )}
-                            <span>Dark Mode</span>
+                            {themeMode === 'light' && <Sun className="w-4 h-4 text-amber-500 shrink-0" />}
+                            {themeMode === 'dark' && <Moon className="w-4 h-4 text-muted-text dark:text-muted-text shrink-0" />}
+                            {themeMode === 'system' && <Monitor className="w-4 h-4 text-muted-text dark:text-muted-text shrink-0" />}
+                            <span>{t('darkMode')}</span>
                           </div>
-                          <div className={`w-8 h-4.5 rounded-full p-0.5 transition-colors duration-200 cursor-pointer ${darkMode ? 'bg-[#3525cd]' : 'bg-[#e2e8f8]'}`}>
-                            <div className={`w-3.5 h-3.5 bg-white rounded-full transition-transform duration-200 ${darkMode ? 'translate-x-3.5' : 'translate-x-0'}`} />
-                          </div>
+                          <span className="text-[10px] uppercase font-bold text-[#9ca3af] bg-brand-light dark:bg-brand-light px-2 py-0.5 rounded-full">
+                            {themeMode}
+                          </span>
                         </button>
 
                         <button
                           onClick={() => {
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("MindStream Support Center. Chat with AI Tutor for instant help!", "info");
+                            showBannerNotification(t('supportCenterChat'), "info");
                           }}
-                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left"
+                          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left"
                         >
-                          <HelpCircle className="w-4 h-4 shrink-0 text-[#777587] dark:text-[#9ca3af]" />
-                          <span>Help &amp; Support</span>
+                          <HelpCircle className="w-4 h-4 shrink-0 text-muted-text dark:text-muted-text" />
+                          <span>{t('helpAndSupport')}</span>
                         </button>
                       </div>
 
                       {/* Divider */}
-                      <div className="border-t border-[#e2e8f8] dark:border-[#2a2f45] my-0.5" />
+                      <div className="border-t border-main-border dark:border-main-border my-0.5" />
 
                       {/* Log Out option */}
                       <button
@@ -2185,7 +2236,7 @@ export default function App() {
                         className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-[#ef4444] hover:bg-red-50 dark:hover:bg-red-950/25 transition-all text-left w-full"
                       >
                         <LogOut className="w-4 h-4 shrink-0 text-[#ef4444]" />
-                        <span>Log Out</span>
+                        <span>{t('logout')}</span>
                       </button>
                     </motion.div>
                   </>
@@ -2207,15 +2258,15 @@ export default function App() {
                       animate={{ y: 0 }}
                       exit={{ y: "100%" }}
                       transition={{ type: "spring", damping: 25, stiffness: 220 }}
-                      className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#161925] border-t border-[#e2e8f8] dark:border-[#2a2f45] rounded-t-[2.5rem] shadow-2xl z-50 p-6 flex flex-col md:hidden max-h-[85vh] text-left"
+                      className="fixed bottom-0 left-0 right-0 bg-white dark:bg-card-bg border-t border-main-border dark:border-main-border rounded-t-[2.5rem] shadow-2xl z-50 p-6 flex flex-col md:hidden max-h-[85vh] text-left"
                       id="profile-mobile-bottom-sheet"
                     >
                       {/* Pull Indicator handle */}
-                      <div className="w-12 h-1.5 bg-[#e2e8f8] dark:bg-[#2a2f45] rounded-full mx-auto mb-5 shrink-0" />
+                      <div className="w-12 h-1.5 bg-brand-light dark:bg-brand-light rounded-full mx-auto mb-5 shrink-0" />
 
                       {/* Profile details */}
-                      <div className="flex items-center gap-4 pb-5 border-b border-[#e2e8f8] dark:border-[#2a2f45]">
-                        <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#3525cd]/15 shrink-0">
+                      <div className="flex items-center gap-4 pb-5 border-b border-main-border dark:border-main-border">
+                        <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-brand/15 shrink-0">
                           <img
                             src={currentUser?.avatarUrl || IMAGES.avatarGabriel}
                             alt="User profile"
@@ -2224,24 +2275,24 @@ export default function App() {
                           />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-extrabold text-[#151c27] dark:text-[#f3f4f6] text-base truncate">
+                          <h4 className="font-extrabold text-main-text dark:text-main-text text-base truncate">
                             {currentUser?.fullName || 'Gabriel Semesco'}
                           </h4>
-                          <p className="text-xs text-[#777587] dark:text-[#9ca3af] truncate">
+                          <p className="text-xs text-muted-text dark:text-muted-text truncate">
                             {currentUser?.email || 'gabsemesco1@gmail.com'}
                           </p>
                         </div>
                       </div>
 
                       {/* Stats inside bottom sheet */}
-                      <div className="grid grid-cols-2 gap-3 my-4 bg-[#f0f3ff] dark:bg-[#1e2235] p-4 rounded-2xl border border-[#e2e8f8] dark:border-[#2a2f45] text-xs transition-colors duration-300">
+                      <div className="grid grid-cols-2 gap-3 my-4 bg-brand-light dark:bg-brand-light p-4 rounded-2xl border border-main-border dark:border-main-border text-xs transition-colors duration-300">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-xl bg-orange-500/10 flex items-center justify-center shrink-0">
                             <Flame className="w-4 h-4 text-orange-500 fill-current" />
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-[#777587] dark:text-[#9ca3af] font-semibold uppercase">Streak</span>
-                            <span className="font-bold text-[#3525cd] dark:text-[#7f75f0]">{streakDays} Days</span>
+                            <span className="text-[10px] text-muted-text dark:text-muted-text font-semibold uppercase">{t('streak')}</span>
+                            <span className="font-bold text-brand dark:text-brand">{streakDays} {t('days')}</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2.5">
@@ -2249,7 +2300,7 @@ export default function App() {
                             <Award className="w-4 h-4 text-[#006f64]" />
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-[#777587] dark:text-[#9ca3af] font-semibold uppercase">Score</span>
+                            <span className="text-[10px] text-muted-text dark:text-muted-text font-semibold uppercase">{t('score')}</span>
                             <span className="font-bold text-[#006f64] dark:text-[#2dd4bf]">{productivityRatio}%</span>
                           </div>
                         </div>
@@ -2262,73 +2313,75 @@ export default function App() {
                             setActiveTab('profile');
                             setIsProfileMenuOpen(false);
                           }}
-                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left w-full"
+                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left w-full"
                         >
-                          <User className="w-5 h-5 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                          <span>My Profile</span>
+                          <User className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />
+                          <span>{t('myProfile')}</span>
                         </button>
 
                         <button
                           onClick={() => {
                             setActiveTab('profile');
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("Settings view is available on your profile hub.", "info");
+                            showBannerNotification(t('settingsViewAvailable'), "info");
                           }}
-                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left w-full"
+                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left w-full"
                         >
-                          <Settings className="w-5 h-5 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                          <span>Settings</span>
+                          <Settings className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />
+                          <span>{t('settings')}</span>
                         </button>
 
                         <button
                           onClick={() => {
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("Notification preferences synchronized successfully.", "info");
+                            showBannerNotification(t('notificationPrefsSynced'), "info");
                           }}
-                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left w-full"
+                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left w-full"
                         >
-                          <Bell className="w-5 h-5 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                          <span>Notifications</span>
+                          <Bell className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />
+                          <span>{t('notifications')}</span>
                         </button>
 
-                        {/* Dark Mode toggle item on mobile */}
+                        {/* Theme Mode toggle item on mobile */}
                         <button
-                          onClick={() => setDarkMode(!darkMode)}
-                          className="flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left w-full"
+                          onClick={() => {
+                            if (themeMode === 'light') setThemeMode('dark');
+                            else if (themeMode === 'dark') setThemeMode('system');
+                            else setThemeMode('light');
+                          }}
+                          className="flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left w-full"
                         >
                           <div className="flex items-center gap-3.5">
-                            {darkMode ? (
-                              <Sun className="w-5 h-5 text-amber-500 shrink-0" />
-                            ) : (
-                              <Moon className="w-5 h-5 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                            )}
-                            <span>Dark Mode</span>
+                            {themeMode === 'light' && <Sun className="w-5 h-5 text-amber-500 shrink-0" />}
+                            {themeMode === 'dark' && <Moon className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />}
+                            {themeMode === 'system' && <Monitor className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />}
+                            <span>{t('darkMode')}</span>
                           </div>
-                          <div className={`w-10 h-5.5 rounded-full p-0.5 transition-colors duration-200 cursor-pointer ${darkMode ? 'bg-[#3525cd]' : 'bg-[#e2e8f8]'}`}>
-                            <div className={`w-4.5 h-4.5 bg-white rounded-full transition-transform duration-200 ${darkMode ? 'translate-x-4.5' : 'translate-x-0'}`} />
-                          </div>
+                          <span className="text-xs uppercase font-bold text-[#9ca3af] bg-brand-light dark:bg-brand-light px-2.5 py-0.5 rounded-full">
+                            {themeMode}
+                          </span>
                         </button>
 
                         <button
                           onClick={() => {
                             setIsProfileMenuOpen(false);
-                            showBannerNotification("Support center loading... Feel free to ask AI Tutor!", "info");
+                            showBannerNotification(t('supportCenterLoading'), "info");
                           }}
-                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-[#464555] dark:text-[#d1d5db] hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-all text-left w-full"
+                          className="flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-secondary-text dark:text-[#d1d5db] hover:bg-brand-light dark:hover:bg-brand-light hover:text-brand dark:hover:text-brand transition-all text-left w-full"
                         >
-                          <HelpCircle className="w-5 h-5 text-[#777587] dark:text-[#9ca3af] shrink-0" />
-                          <span>Help &amp; Support</span>
+                          <HelpCircle className="w-5 h-5 text-muted-text dark:text-muted-text shrink-0" />
+                          <span>{t('helpAndSupport')}</span>
                         </button>
                       </div>
 
                       {/* Log Out option sticky at the bottom of sheet */}
-                      <div className="shrink-0 pt-4 pb-2 border-t border-[#e2e8f8] dark:border-[#2a2f45] bg-white dark:bg-[#161925] z-10">
+                      <div className="shrink-0 pt-4 pb-2 border-t border-main-border dark:border-main-border bg-white dark:bg-card-bg z-10">
                         <button
                           onClick={handleSignOut}
                           className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-950/25 text-[#ef4444] rounded-2xl text-sm font-extrabold transition-all active:scale-[0.98]"
                         >
                           <LogOut className="w-5 h-5 shrink-0" />
-                          <span>Log Out</span>
+                          <span>{t('logout')}</span>
                         </button>
                       </div>
                     </motion.div>
@@ -2340,14 +2393,14 @@ export default function App() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowSearch(true)}
-                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#e2e8f8] text-[#777587] hover:text-[#3525cd] transition-all"
-                title="Search task database..."
+                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-brand-light text-muted-text hover:text-brand transition-all"
+                title={t('searchTaskDatabase')}
               >
                 <Search className="w-5 h-5" />
               </button>
               <button
-                onClick={() => showBannerNotification("MindStream synchronizing and up to date.", "info")}
-                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#e2e8f8] text-[#3525cd] relative transition-all animate-none"
+                onClick={() => showBannerNotification(t('mindstreamSyncedUpToDate'), "info")}
+                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-brand-light text-brand relative transition-all animate-none"
               >
                 <Bell className="w-5 h-5" />
                 <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#ffb695]" />
@@ -2362,13 +2415,13 @@ export default function App() {
             <aside className="hidden lg:flex flex-col w-64 shrink-0 space-y-6">
 
               {/* Profile Greeting Section */}
-              <div className="bg-white p-6 rounded-2xl border border-[#e2e8f8] text-center space-y-3 shadow-sm">
-                <div className="w-20 h-20 rounded-full mx-auto overflow-hidden border-4 border-[#3525cd]/10">
+              <div className="bg-white p-6 rounded-2xl border border-main-border text-center space-y-3 shadow-sm">
+                <div className="w-20 h-20 rounded-full mx-auto overflow-hidden border-4 border-brand/10">
                   <img src={currentUser?.avatarUrl || IMAGES.avatarGabriel} alt="User profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-[#151c27] text-md">{currentUser?.fullName || 'Gabriel Semesco'}</h3>
-                  <p className="text-xs text-[#777587] break-all">{currentUser?.email || 'gabsemesco1@gmail.com'}</p>
+                  <h3 className="font-bold text-main-text text-md">{currentUser?.fullName || 'Gabriel Semesco'}</h3>
+                  <p className="text-xs text-muted-text break-all">{currentUser?.email || 'gabsemesco1@gmail.com'}</p>
                 </div>
                 <div className="flex justify-center items-center gap-1.5 px-3 py-1 bg-[#ffdbcc] text-[#7e3000] rounded-full text-xs font-bold w-fit mx-auto shadow-sm">
                   <Flame className="w-4 h-4 fill-current" />
@@ -2377,7 +2430,7 @@ export default function App() {
               </div>
 
               {/* Sidebar Tabs Navigation */}
-              <div className="bg-white rounded-2xl border border-[#e2e8f8] p-4 shadow-sm space-y-1">
+              <div className="bg-white rounded-2xl border border-main-border p-4 shadow-sm space-y-1">
                 {[
                   { id: 'dashboard', label: t('dashboard'), icon: LayoutDashboard },
                   { id: 'calendar', label: t('calendar'), icon: CalendarIcon },
@@ -2392,7 +2445,7 @@ export default function App() {
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id as any)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${isActive ? 'bg-[#3525cd] text-white shadow-sm' : 'text-[#464555] hover:bg-[#f0f3ff] hover:text-[#3525cd]'}`}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${isActive ? 'bg-brand text-white shadow-sm' : 'text-secondary-text hover:bg-brand-light hover:text-brand'}`}
                     >
                       <Icon className="w-4 h-4" />
                       <span>{item.label}</span>
@@ -2404,19 +2457,19 @@ export default function App() {
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-[#ef4444] hover:bg-[#fef2f2] hover:text-[#ef4444]"
                 >
                   <LogOut className="w-4 h-4" />
-                  <span>Sign Out</span>
+                  <span>{t('logout')}</span>
                 </button>
               </div>
 
               {/* Promo Banner inside rail */}
-              <div className="bg-[#4f46e5] text-white p-6 rounded-2xl space-y-3 relative overflow-hidden shadow-md">
+              <div className="bg-brand text-white p-6 rounded-2xl space-y-3 relative overflow-hidden shadow-md">
                 <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none" />
-                <p className="text-xs uppercase tracking-wider font-bold opacity-75">Level Up</p>
-                <h4 className="font-bold text-sm leading-snug">Deep study modules are fully active!</h4>
+                <p className="text-xs uppercase tracking-wider font-bold opacity-75">{t('levelUp')}</p>
+                <h4 className="font-bold text-sm leading-snug">{t('deepStudyModulesActive')}</h4>
                 <div className="w-full bg-white/25 h-1.5 rounded-full overflow-hidden">
                   <div className="bg-white h-full w-[85%]" />
                 </div>
-                <p className="text-[11px] opacity-90 text-right">85% Year Completion</p>
+                <p className="text-[11px] opacity-90 text-right">{t('yearCompletion')}</p>
               </div>
 
             </aside>
@@ -2437,19 +2490,19 @@ export default function App() {
                     {/* Welcome Header */}
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                       <div className="flex flex-col gap-1">
-                        <p className="text-xs font-bold text-[#3525cd] uppercase tracking-wider flex items-center gap-2">
+                        <p className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-2">
                           <span>
                             {new Date(getLocalDateString() + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                           </span>
                           {isRefreshing && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-[#777587] normal-case bg-[#3525cd]/5 px-2.5 py-0.5 rounded-full font-bold">
-                              <span className="w-1.5 h-1.5 bg-[#3525cd] rounded-full animate-ping" />
-                              Syncing...
+                            <span className="inline-flex items-center gap-1 text-[10px] text-muted-text normal-case bg-brand/5 px-2.5 py-0.5 rounded-full font-bold">
+                              <span className="w-1.5 h-1.5 bg-brand rounded-full animate-ping" />
+                              {t('syncing')}
                             </span>
                           )}
                         </p>
-                        <h2 className="text-2xl md:text-3xl font-extrabold text-[#151c27] tracking-tight">
-                          Good Morning, {currentUser?.fullName?.split(' ')[0] || 'Gabriel'}
+                        <h2 className="text-2xl md:text-3xl font-extrabold text-main-text tracking-tight">
+                          {t('goodMorning', { name: currentUser?.fullName?.split(' ')[0] || 'Gabriel' })}
                         </h2>
                       </div>
 
@@ -2458,12 +2511,12 @@ export default function App() {
                         disabled={isRefreshing}
                         title="Synchronize database with Supabase"
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${isRefreshing
-                            ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-white hover:bg-gray-50 border-[#e2e8f8] text-[#464555] hover:text-[#3525cd] shadow-2xs'
+                          ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-white hover:bg-gray-50 border-main-border text-secondary-text hover:text-brand shadow-2xs'
                           }`}
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                        <span>{isRefreshing ? t('refreshing') : t('refresh')}</span>
                       </button>
                     </div>
 
@@ -2471,18 +2524,18 @@ export default function App() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
                       {/* Stat Card 1 */}
-                      <div className="bg-white p-5 rounded-2xl border border-[#e2e8f8] flex flex-col justify-between shadow-sm relative overflow-hidden">
-                        <div className="w-10 h-10 rounded-xl bg-[#e2dfff] flex items-center justify-center text-[#3525cd]">
+                      <div className="bg-white p-5 rounded-2xl border border-main-border flex flex-col justify-between shadow-sm relative overflow-hidden">
+                        <div className="w-10 h-10 rounded-xl bg-[#e2dfff] flex items-center justify-center text-brand">
                           <ListTodo className="w-5 h-5" />
                         </div>
                         <div className="mt-4">
-                          <p className="text-xs font-semibold text-[#464555]">Tasks Due Today</p>
-                          <p className="text-2xl font-bold text-[#151c27] mt-1">{tasksDueTodayCount}</p>
+                          <p className="text-xs font-semibold text-secondary-text">{t('tasksDueToday')}</p>
+                          <p className="text-2xl font-bold text-main-text mt-1">{tasksDueTodayCount}</p>
                         </div>
                       </div>
 
                       {/* Stat Card 2 */}
-                      <div id="stat-hours" className="bg-white p-5 rounded-2xl border border-[#e2e8f8] flex flex-col justify-between shadow-sm">
+                      <div id="stat-hours" className="bg-white p-5 rounded-2xl border border-main-border flex flex-col justify-between shadow-sm">
                         <div className="flex justify-between items-start">
                           <div className="w-10 h-10 rounded-xl bg-[#6df5e1]/10 flex items-center justify-center text-[#006b5f]">
                             <ClockIcon className="w-5 h-5" />
@@ -2490,35 +2543,35 @@ export default function App() {
                         </div>
                         <div className="mt-4 space-y-2">
                           <div>
-                            <p className="text-xs font-semibold text-[#464555]">Total Study Hours</p>
-                            <p className="text-2xl font-bold text-[#151c27] mt-0.5">{studyHours}h</p>
+                            <p className="text-xs font-semibold text-secondary-text">{t('totalStudyHours')}</p>
+                            <p className="text-2xl font-bold text-main-text mt-0.5">{studyHours}h</p>
                           </div>
-                          <div className="flex justify-between border-t border-[#e2e8f8] pt-2 text-[10px] text-[#777587] font-semibold">
-                            <span>Today: <strong className="text-[#006f64]">{todayStudyHours}h</strong></span>
-                            <span>This Week: <strong className="text-[#3525cd]">{weeklyStudyHours}h</strong></span>
+                          <div className="flex justify-between border-t border-main-border pt-2 text-[10px] text-muted-text font-semibold">
+                            <span>{t('today')} <strong className="text-[#006f64]">{todayStudyHours}h</strong></span>
+                            <span>{t('thisWeek')} <strong className="text-brand">{weeklyStudyHours}h</strong></span>
                           </div>
                         </div>
                       </div>
 
                       {/* Stat Card 3 */}
-                      <div className="bg-white p-5 rounded-2xl border border-[#e2e8f8] flex flex-col justify-between shadow-sm">
+                      <div className="bg-white p-5 rounded-2xl border border-main-border flex flex-col justify-between shadow-sm">
                         <div className="w-10 h-10 rounded-xl bg-[#e2dfff] flex items-center justify-center text-[#ffb695]">
                           <TrendingUp className="w-5 h-5" />
                         </div>
                         <div className="mt-4">
-                          <p className="text-xs font-semibold text-[#464555]">Productivity Score</p>
-                          <p className="text-2xl font-bold text-[#151c27] mt-1">{productivityRatio}%</p>
+                          <p className="text-xs font-semibold text-secondary-text">{t('productivityScore')}</p>
+                          <p className="text-2xl font-bold text-main-text mt-1">{productivityRatio}%</p>
                         </div>
                       </div>
 
                       {/* Stat Card 4 */}
-                      <div className="bg-white p-5 rounded-2xl border border-[#e2e8f8] flex flex-col justify-between shadow-sm">
+                      <div className="bg-white p-5 rounded-2xl border border-main-border flex flex-col justify-between shadow-sm">
                         <div className="w-10 h-10 rounded-xl bg-[#ffdbcc] flex items-center justify-center text-[#7e3000]">
                           <School className="w-5 h-5" />
                         </div>
                         <div className="mt-4">
-                          <p className="text-xs font-semibold text-[#464555]">Upcoming Exams</p>
-                          <p className="text-2xl font-bold text-[#151c27] mt-1">{upcomingExamsCount}</p>
+                          <p className="text-xs font-semibold text-secondary-text">{t('upcomingExams')}</p>
+                          <p className="text-2xl font-bold text-main-text mt-1">{upcomingExamsCount}</p>
                         </div>
                       </div>
 
@@ -2527,27 +2580,27 @@ export default function App() {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
                       {/* Timeline: Today's Schedule Card */}
-                      <div className="lg:col-span-7 bg-white rounded-2xl border border-[#e2e8f8] p-6 shadow-sm space-y-4">
+                      <div className="lg:col-span-7 bg-white rounded-2xl border border-main-border p-6 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-extrabold text-md text-[#151c27] tracking-tight">Today's Schedule</h3>
-                          <button onClick={() => setActiveTab('calendar')} className="text-xs font-bold text-[#3525cd] hover:underline">
-                            View full calendar
+                          <h3 className="font-extrabold text-md text-main-text tracking-tight">{t('todaysSchedule')}</h3>
+                          <button onClick={() => setActiveTab('calendar')} className="text-xs font-bold text-brand hover:underline">
+                            {t('viewFullCalendar')}
                           </button>
                         </div>
 
                         <div className="space-y-4 pt-2">
                           {todaysEvents.length === 0 && todaysTasks.length === 0 ? (
-                            <div className="text-center py-10 text-[#777587] space-y-2">
-                              <BookOpen className="w-8 h-8 opacity-40 mx-auto text-[#3525cd]" />
-                              <p className="text-xs font-semibold text-[#151c27]">No tasks or events scheduled for today.</p>
-                              <p className="text-[11px] text-[#777587]">Enjoy your free time or add a new task/event!</p>
+                            <div className="text-center py-10 text-muted-text space-y-2">
+                              <BookOpen className="w-8 h-8 opacity-40 mx-auto text-brand" />
+                              <p className="text-xs font-semibold text-main-text">{t('noTasksEventsToday')}</p>
+                              <p className="text-[11px] text-muted-text">{t('enjoyFreeTime')}</p>
                             </div>
                           ) : (
                             <>
                               {/* Render events first */}
                               {todaysEvents.map((e, idx) => {
-                                let typeColor = 'bg-[#4f46e5]/5 border-[#3525cd] text-[#3323cc]';
-                                let dotColor = 'bg-[#3525cd]';
+                                let typeColor = 'bg-brand/5 border-brand text-[#3323cc]';
+                                let dotColor = 'bg-brand';
                                 if (e.type === 'exam') {
                                   typeColor = 'bg-red-50 border-[#ba1a1a] text-[#ba1a1a]';
                                   dotColor = 'bg-[#ba1a1a]';
@@ -2564,10 +2617,10 @@ export default function App() {
                                 return (
                                   <div
                                     key={e.id}
-                                    className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-[#e2e8f8]' : ''}`}
+                                    className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-main-border' : ''}`}
                                   >
                                     <span className={`absolute -left-[6px] top-1.5 w-2.5 h-2.5 rounded-full ${dotColor}`} />
-                                    <div className="text-xs text-[#777587] min-w-[65px] whitespace-nowrap">{e.time}</div>
+                                    <div className="text-xs text-muted-text min-w-[65px] whitespace-nowrap">{e.time}</div>
                                     <div className={`flex-1 border-l-4 p-3 rounded-r-xl ${typeColor}`}>
                                       <h4 className="text-xs font-bold">{e.title}</h4>
                                       <p className="text-[11px] opacity-85 mt-1">
@@ -2579,16 +2632,16 @@ export default function App() {
                               })}
 
                               {/* Render tasks next */}
-                              {todaysTasks.map((t, idx) => {
+                              {todaysTasks.map((task, idx) => {
                                 let priorityColor = 'bg-blue-50 border-blue-500 text-blue-700';
                                 let dotColor = 'bg-blue-500';
-                                if (t.priority === 'high') {
+                                if (task.priority === 'high') {
                                   priorityColor = 'bg-orange-50 border-orange-500 text-orange-700';
                                   dotColor = 'bg-orange-500';
-                                } else if (t.priority === 'medium') {
+                                } else if (task.priority === 'medium') {
                                   priorityColor = 'bg-red-50 border-red-500 text-red-700';
                                   dotColor = 'bg-red-500';
-                                } else if (t.priority === 'low') {
+                                } else if (task.priority === 'low') {
                                   priorityColor = 'bg-gray-50 border-gray-400 text-gray-600';
                                   dotColor = 'bg-gray-400';
                                 }
@@ -2597,20 +2650,20 @@ export default function App() {
 
                                 return (
                                   <div
-                                    key={t.id}
-                                    className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-[#e2e8f8]' : ''}`}
+                                    key={task.id}
+                                    className={`flex gap-4 items-start relative pl-5 ml-2.5 ${!isLast ? 'pb-4 border-l-2 border-main-border' : ''}`}
                                   >
                                     <span className={`absolute -left-[6px] top-1.5 w-2.5 h-2.5 rounded-full ${dotColor}`} />
-                                    <div className="text-xs text-[#777587] min-w-[65px] whitespace-nowrap">Task Due</div>
+                                    <div className="text-xs text-muted-text min-w-[65px] whitespace-nowrap">{t('taskDue')}</div>
                                     <div className={`flex-1 border-l-4 p-3 rounded-r-xl ${priorityColor}`}>
                                       <h4 className="text-xs font-bold flex items-center justify-between gap-2">
-                                        <span>{t.title}</span>
+                                        <span>{task.title}</span>
                                         <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/70">
-                                          {t.status === 'completed' ? '✓ Completed' : t.status === 'progress' ? 'In Progress' : 'Pending'}
+                                          {task.status === 'completed' ? '✓ Completed' : task.status === 'progress' ? 'In Progress' : 'Pending'}
                                         </span>
                                       </h4>
                                       <p className="text-[11px] opacity-85 mt-1">
-                                        Subject: {t.subject} • Priority: {t.priority}
+                                        {t('subject', { subject: task.subject })} • {t('priority', { priority: task.priority })}
                                       </p>
                                     </div>
                                   </div>
@@ -2624,44 +2677,65 @@ export default function App() {
                       {/* Right Hand: Upcoming Deadlines */}
                       <div className="lg:col-span-5 space-y-6">
 
-                        <div className="bg-white rounded-2xl border border-[#e2e8f8] p-6 shadow-sm space-y-4">
-                          <h3 className="font-extrabold text-md text-[#151c27] tracking-tight">Upcoming Deadlines</h3>
+                        <div className="bg-white rounded-2xl border border-main-border p-6 shadow-sm space-y-4">
+                          <h3 className="font-extrabold text-md text-main-text tracking-tight">{t('upcomingDeadlines')}</h3>
 
                           <div className="space-y-4">
+                            {upcomingDeadlines.length > 0 ? (
+                              upcomingDeadlines.map((task) => (
+                                <div
+                                  key={task.id}
+                                  className="p-4 bg-brand-light rounded-xl space-y-2 border border-main-border"
+                                >
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="px-2 py-0.5 bg-brand/10 text-brand rounded-full font-bold">
+                                      {task.subject}
+                                    </span>
 
-                            {/* Deadline list card 1 */}
-                            <div className="p-4 bg-[#f0f3ff] rounded-xl space-y-2 border border-[#e2e8f8]">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="px-2 py-0.5 bg-[#4f46e5]/10 text-[#3525cd] rounded-full font-bold">Computer Science</span>
-                                <span className="text-[#ba1a1a] font-bold">Due in 2 days</span>
-                              </div>
-                              <h4 className="font-bold text-sm text-[#151c27]">Data Structures Lab</h4>
-                              <div className="h-2 w-full bg-[#dce2f3] rounded-full overflow-hidden">
-                                <div className="h-full bg-[#3525cd] rounded-full" style={{ width: '65%' }} />
-                              </div>
-                              <p className="text-[11px] text-[#464555] text-right font-medium">65% Completed</p>
-                            </div>
+                                    <span
+                                      className={`font-bold ${task.priority === "high"
+                                        ? "text-[#ba1a1a]"
+                                        : task.priority === "medium"
+                                          ? "text-[#d97706]"
+                                          : "text-muted-text"
+                                        }`}
+                                    >
+                                      {task.dueDate}
+                                    </span>
+                                  </div>
 
-                            {/* Deadline list card 2 */}
-                            <div className="p-4 bg-[#f0f3ff] rounded-xl space-y-2 border border-[#e2e8f8]">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="px-2 py-0.5 bg-[#6df5e1]/20 text-[#006f64] rounded-full font-bold">Applied Physics</span>
-                                <span className="text-[#777587] font-bold">May 25</span>
-                              </div>
-                              <h4 className="font-bold text-sm text-[#151c27]">Thermodynamics Report</h4>
-                              <div className="h-2 w-full bg-[#dce2f3] rounded-full overflow-hidden">
-                                <div className="h-full bg-[#14b8a6] rounded-full" style={{ width: '20%' }} />
-                              </div>
-                              <p className="text-[11px] text-[#464555] text-right font-medium">20% Completed</p>
-                            </div>
+                                  <h4 className="font-bold text-sm text-main-text">
+                                    {task.title}
+                                  </h4>
 
+                                  <div className="h-2 w-full bg-[#dce2f3] rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-brand rounded-full"
+                                      style={{
+                                        width: `${task.completedPercent ?? 0}%`
+                                      }}
+                                    />
+                                  </div>
+
+                                  <p className="text-[11px] text-secondary-text text-right font-medium">
+                                    {t("percentCompleted", {
+                                      percent: task.completedPercent ?? 0
+                                    })}
+                                  </p>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-center py-8 text-muted-text text-sm">
+                                {t("noUpcomingDeadlines")}
+                              </div>
+                            )}
                           </div>
                         </div>
 
                         {/* Interactive AI Study Companion promo Card */}
                         <div
                           onClick={() => setActiveTab('aitutor')}
-                          className="group relative rounded-2xl overflow-hidden h-36 shadow-md border border-[#e2e8f8] cursor-pointer"
+                          className="group relative rounded-2xl overflow-hidden h-36 shadow-md border border-main-border cursor-pointer"
                         >
                           <img
                             src={IMAGES.companionCardBg}
@@ -2669,13 +2743,13 @@ export default function App() {
                             className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 pointer-events-none"
                             referrerPolicy="no-referrer"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-r from-[#3525cd]/85 to-[#4f46e5]/70 backdrop-blur-[2px] flex flex-col justify-center p-6 text-white space-y-2">
+                          <div className="absolute inset-0 bg-gradient-to-r from-brand/85 to-brand-hover/70 backdrop-blur-[2px] flex flex-col justify-center p-6 text-white space-y-2">
                             <div className="flex items-center gap-1.5">
                               <Sparkles className="w-5 h-5 fill-yellow-300 stroke-yellow-300" />
-                              <span className="text-xs uppercase tracking-wider font-bold">MindStream AI Companion</span>
+                              <span className="text-xs uppercase tracking-wider font-bold">{t('aiCompanion')}</span>
                             </div>
-                            <h4 className="font-bold text-md leading-snug">New: Your AI Study Assistant is now live!</h4>
-                            <p className="text-xs opacity-95">Tap to summarize lecture notes, review code & generate mock quizzes.</p>
+                            <h4 className="font-bold text-md leading-snug">{t('aiAssistantLive')}</h4>
+                            <p className="text-xs opacity-95">{t('aiAssistantDesc')}</p>
                           </div>
                         </div>
 
@@ -2697,23 +2771,23 @@ export default function App() {
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-center gap-4">
                         <div>
-                          <h2 className="text-2xl md:text-3xl font-extrabold text-[#151c27]">
+                          <h2 className="text-2xl md:text-3xl font-extrabold text-main-text">
                             {monthNames[currentMonth]} {currentYear}
                           </h2>
-                          <p className="text-sm text-[#464555]">Academic checkpoints & assignments due this week</p>
+                          <p className="text-sm text-secondary-text">{t('academicCheckpoints')}</p>
                         </div>
-                        <div className="flex items-center gap-1 bg-[#e2e8f8]/80 p-1 rounded-xl shadow-xs ml-2">
+                        <div className="flex items-center gap-1 bg-brand-light/80 p-1 rounded-xl shadow-xs ml-2">
                           <button
                             onClick={handlePrevMonth}
-                            className="p-1.5 hover:bg-white text-[#3525cd] rounded-lg transition-all"
-                            title="Previous Month"
+                            className="p-1.5 hover:bg-white text-brand rounded-lg transition-all"
+                            title={t('previousMonth')}
                           >
                             <ChevronLeft className="w-4 h-4" />
                           </button>
                           <button
                             onClick={handleNextMonth}
-                            className="p-1.5 hover:bg-white text-[#3525cd] rounded-lg transition-all"
-                            title="Next Month"
+                            className="p-1.5 hover:bg-white text-brand rounded-lg transition-all"
+                            title={t('nextMonth')}
                           >
                             <ChevronRight className="w-4 h-4" />
                           </button>
@@ -2721,18 +2795,18 @@ export default function App() {
                       </div>
 
                       {/* Switch view toggle */}
-                      <div className="bg-[#e2e8f8]/80 p-1 rounded-xl flex items-center justify-start w-fit shadow-xs">
+                      <div className="bg-brand-light/80 p-1 rounded-xl flex items-center justify-start w-fit shadow-xs">
                         <button
                           onClick={() => setCalendarView('month')}
-                          className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'month' ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555]'}`}
+                          className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'month' ? 'bg-white text-brand shadow-xs' : 'text-secondary-text'}`}
                         >
-                          Month
+                          {t('month')}
                         </button>
                         <button
                           onClick={() => setCalendarView('week')}
-                          className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'week' ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555]'}`}
+                          className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${calendarView === 'week' ? 'bg-white text-brand shadow-xs' : 'text-secondary-text'}`}
                         >
-                          Week
+                          {t('week')}
                         </button>
                       </div>
                     </div>
@@ -2740,15 +2814,15 @@ export default function App() {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
                       {/* Interactive Calendar grid */}
-                      <div className="lg:col-span-8 bg-white p-5 rounded-2xl border border-[#e2e8f8] shadow-sm">
-                        <div className="grid grid-cols-7 text-center font-bold text-xs text-[#777587] pb-3 border-b border-[#e2e8f8]">
-                          <span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span><span>SUN</span>
+                      <div className="lg:col-span-8 bg-white p-5 rounded-2xl border border-main-border shadow-sm">
+                        <div className="grid grid-cols-7 text-center font-bold text-xs text-muted-text pb-3 border-b border-main-border">
+                          <span>{t('mon')}</span><span>{t('tue')}</span><span>{t('wed')}</span><span>{t('thu')}</span><span>{t('fri')}</span><span>{t('sat')}</span><span>{t('sun')}</span>
                         </div>
 
                         <div className="grid grid-cols-7 gap-1 md:gap-3 pt-4">
                           {/* Filler dates prior to current month */}
                           {calendarDaysInfo.fillerDays.map((dayNum, idx) => (
-                            <div key={`filler-${idx}`} className="aspect-square flex items-center justify-center text-xs text-[#c7c4d8]">
+                            <div key={`filler-${idx}`} className="aspect-square flex items-center justify-center text-xs text-main-border">
                               {dayNum}
                             </div>
                           ))}
@@ -2768,10 +2842,10 @@ export default function App() {
                                 key={dayNum}
                                 onClick={() => setSelectedDate(formattedDay)}
                                 className={`aspect-square relative flex flex-col items-center justify-center rounded-xl transition-all ${isSelected
-                                    ? 'bg-[#3525cd] text-white font-bold shadow-lg scale-105'
-                                    : isToday
-                                      ? 'bg-[#e2dfff] text-[#3525cd] font-bold border border-[#3525cd]/20'
-                                      : 'hover:bg-[#f0f3ff] text-[#151c27]'
+                                  ? 'bg-brand text-white font-bold shadow-lg scale-105'
+                                  : isToday
+                                    ? 'bg-[#e2dfff] text-brand font-bold border border-brand/20'
+                                    : 'hover:bg-brand-light text-main-text'
                                   }`}
                               >
                                 <span className="text-sm">{dayNum}</span>
@@ -2784,7 +2858,7 @@ export default function App() {
 
                           {/* Filler dates after current month to balance the grid */}
                           {calendarDaysInfo.nextMonthFiller.map((dayNum, idx) => (
-                            <div key={`next-filler-${idx}`} className="aspect-square flex items-center justify-center text-xs text-[#c7c4d8]/60">
+                            <div key={`next-filler-${idx}`} className="aspect-square flex items-center justify-center text-xs text-main-border/60">
                               {dayNum}
                             </div>
                           ))}
@@ -2793,9 +2867,9 @@ export default function App() {
 
                       {/* Selected Day Agenda checklist */}
                       <div className="lg:col-span-4 space-y-6">
-                        <div className="bg-white p-6 rounded-2xl border border-[#e2e8f8] shadow-sm space-y-4">
-                          <div className="flex justify-between items-center pb-2 border-b border-[#e2e8f8]">
-                            <h3 className="font-bold text-md text-[#151c27]">Today's Agenda</h3>
+                        <div className="bg-white p-6 rounded-2xl border border-main-border shadow-sm space-y-4">
+                          <div className="flex justify-between items-center pb-2 border-b border-main-border">
+                            <h3 className="font-bold text-md text-main-text">{t('todaysAgenda')}</h3>
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => {
@@ -2809,12 +2883,12 @@ export default function App() {
                                   setEventSubject('');
                                   setIsAddingEvent(true);
                                 }}
-                                className="p-1 text-[#3525cd] hover:bg-[#3525cd]/10 rounded-full transition-all"
-                                title="Add Event"
+                                className="p-1 text-brand hover:bg-brand/10 rounded-full transition-all"
+                                title={t('addEvent')}
                               >
                                 <Plus className="w-5 h-5" />
                               </button>
-                              <span className="px-3 py-1 bg-[#4f46e5]/10 text-[#3525cd] rounded-lg text-xs font-bold">
+                              <span className="px-3 py-1 bg-brand/10 text-brand rounded-lg text-xs font-bold">
                                 {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                               </span>
                             </div>
@@ -2829,13 +2903,13 @@ export default function App() {
                                 .map((e) => {
                                   let typeColor = 'bg-blue-50 border-[#3B82F6] text-[#1E40AF]';
                                   if (e.type === 'exam') typeColor = 'bg-red-50 border-[#ba1a1a] text-[#ba1a1a]';
-                                  if (e.type === 'class') typeColor = 'bg-[#4f46e5]/5 border-[#3525cd] text-[#3323cc]';
+                                  if (e.type === 'class') typeColor = 'bg-brand/5 border-brand text-[#3323cc]';
                                   if (e.type === 'study') typeColor = 'bg-emerald-50 border-[#006b5f] text-[#006f64]';
                                   if (e.type === 'submission') typeColor = 'bg-purple-50 border-[#7c3aed] text-[#5b21b6]';
 
                                   return (
                                     <div key={e.id} className="flex gap-3 text-left group">
-                                      <div className="text-xs text-[#777587] pt-1 whitespace-nowrap w-16">{e.time}</div>
+                                      <div className="text-xs text-muted-text pt-1 whitespace-nowrap w-16">{e.time}</div>
                                       <div className={`flex-1 p-3 border-l-4 rounded-r-xl relative ${typeColor}`}>
                                         <h4 className="text-xs font-semibold leading-snug pr-12">{e.title}</h4>
                                         <p className="text-[10px] opacity-85 mt-0.5">{e.location} • {e.duration} Hours • {e.subject}</p>
@@ -2844,15 +2918,15 @@ export default function App() {
                                         <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 bg-white/90 backdrop-blur-xs p-0.5 rounded-lg transition-opacity border border-gray-100 shadow-sm">
                                           <button
                                             onClick={() => startEditEvent(e)}
-                                            className="p-1 text-[#777587] hover:text-[#3525cd] rounded-md hover:bg-gray-100 transition-colors"
-                                            title="Edit Event"
+                                            className="p-1 text-muted-text hover:text-brand rounded-md hover:bg-gray-100 transition-colors"
+                                            title={t('editEvent')}
                                           >
                                             <Pencil className="w-3 h-3" />
                                           </button>
                                           <button
                                             onClick={() => deleteEvent(e.id)}
-                                            className="p-1 text-[#777587] hover:text-red-500 rounded-md hover:bg-gray-100 transition-colors"
-                                            title="Delete Event"
+                                            className="p-1 text-muted-text hover:text-red-500 rounded-md hover:bg-gray-100 transition-colors"
+                                            title={t('deleteEvent')}
                                           >
                                             <Trash2 className="w-3 h-3" />
                                           </button>
@@ -2862,9 +2936,9 @@ export default function App() {
                                   );
                                 })
                             ) : (
-                              <div className="text-center py-8 text-[#777587] space-y-2">
+                              <div className="text-center py-8 text-muted-text space-y-2">
                                 <BookOpen className="w-8 h-8 opacity-40 mx-auto" />
-                                <p className="text-xs font-medium">No schedule blocks logged on this date.</p>
+                                <p className="text-xs font-medium">{t('noScheduleBlocks')}</p>
                                 <button
                                   onClick={() => {
                                     setEventDate(selectedDate);
@@ -2877,9 +2951,9 @@ export default function App() {
                                     setEventSubject('');
                                     setIsAddingEvent(true);
                                   }}
-                                  className="text-[11px] font-bold text-[#3525cd] hover:underline"
+                                  className="text-[11px] font-bold text-brand hover:underline"
                                 >
-                                  + Create Study Block
+                                  {t('createStudyBlock')}
                                 </button>
                               </div>
                             )}
@@ -2887,29 +2961,46 @@ export default function App() {
                         </div>
 
                         {/* Summary panel highlights */}
-                        <div className="bg-[#f0f3ff] p-5 rounded-2xl border border-[#e2e8f8] space-y-4">
-                          <h3 className="text-xs uppercase tracking-wider font-bold text-[#777587]">Upcoming Highlights</h3>
+                        <div className="bg-brand-light p-5 rounded-2xl border border-main-border space-y-4">
+                          <h3 className="text-xs uppercase tracking-wider font-bold text-muted-text">{t('upcomingHighlights')}</h3>
 
                           <div className="space-y-3">
-                            <div className="flex gap-3 items-center bg-white p-3 rounded-xl border border-[#e2e8f8]">
-                              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center text-red-600">
-                                <School className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="text-xs font-bold">Advanced Calculus Exam</h4>
-                                <p className="text-[10px] text-[#777587]">Tomorrow, 09:00 AM</p>
-                              </div>
-                            </div>
+                            {upcomingHighlights.length > 0 ? (
+                              upcomingHighlights.map((event) => (
+                                <div
+                                  key={event.id}
+                                  className="flex gap-3 items-center bg-white p-3 rounded-xl border border-main-border"
+                                >
+                                  <div
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${event.type === "exam"
+                                      ? "bg-red-100 text-red-600"
+                                      : "bg-[#e2dfff] text-brand"
+                                      }`}
+                                  >
+                                    {event.type === "exam" ? (
+                                      <School className="w-4 h-4" />
+                                    ) : (
+                                      <BookOpen className="w-4 h-4" />
+                                    )}
+                                  </div>
 
-                            <div className="flex gap-3 items-center bg-white p-3 rounded-xl border border-[#e2e8f8]">
-                              <div className="w-8 h-8 rounded-lg bg-[#e2dfff] flex items-center justify-center text-[#3525cd]">
-                                <ListTodo className="w-4 h-4" />
+                                  <div>
+                                    <h4 className="text-xs font-bold">
+                                      {event.title}
+                                    </h4>
+
+                                    <p className="text-[10px] text-muted-text">
+                                      {event.date}
+                                      {event.time ? `, ${event.time}` : ""}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-center py-6 text-muted-text text-xs">
+                                {t("noUpcomingHighlights")}
                               </div>
-                              <div>
-                                <h4 className="text-xs font-bold">Data Structures Lab</h4>
-                                <p className="text-[10px] text-[#777587]">Oct 24, 11:59 PM</p>
-                              </div>
-                            </div>
+                            )}
                           </div>
                         </div>
 
@@ -2930,17 +3021,17 @@ export default function App() {
                   >
                     <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                       <div>
-                        <h2 className="text-2xl md:text-3xl font-extrabold text-[#151c27]">Academic Tasks</h2>
-                        <p className="text-sm text-[#464555]">Manage checklists, thesis goals, and course workload</p>
+                        <h2 className="text-2xl md:text-3xl font-extrabold text-main-text">{t('academicTasks')}</h2>
+                        <p className="text-sm text-secondary-text">{t('manageChecklists')}</p>
                       </div>
 
                       {/* Segment Tab controller filter */}
-                      <div className="bg-[#e2e8f8]/80 p-1 rounded-xl flex items-center w-fit shadow-xs">
+                      <div className="bg-brand-light/80 p-1 rounded-xl flex items-center w-fit shadow-xs">
                         {(['pending', 'progress', 'completed'] as TaskStatus[]).map((st) => (
                           <button
                             key={st}
                             onClick={() => setTaskFilter(st)}
-                            className={`px-5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${taskFilter === st ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:text-[#3525cd]'
+                            className={`px-5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${taskFilter === st ? 'bg-white text-brand shadow-xs' : 'text-secondary-text hover:text-brand'
                               }`}
                           >
                             {st === 'progress' ? 'In Progress' : st}
@@ -2954,94 +3045,94 @@ export default function App() {
 
                       {tasks.filter((t) => t.status === taskFilter).length > 0 ? (
                         tasks
-                          .filter((t) => t.status === taskFilter)
-                          .map((t) => {
-                            const isHigh = t.priority === 'high';
-                            const isMed = t.priority === 'medium';
+                          .filter((task) => task.status === taskFilter)
+                          .map((task) => {
+                            const isHigh = task.priority === 'high';
+                            const isMed = task.priority === 'medium';
                             return (
                               <motion.div
                                 layout
-                                key={t.id}
-                                className="bg-white p-6 rounded-2xl border border-[#e2e8f8] shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col justify-between"
+                                key={task.id}
+                                className="bg-white p-6 rounded-2xl border border-main-border shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden flex flex-col justify-between"
                               >
                                 {/* Left priority color strip */}
-                                <div className={`absolute top-0 left-0 w-1 h-full ${isHigh ? 'bg-[#ba1a1a]' : isMed ? 'bg-[#3525cd]' : 'bg-[#777587]'}`} />
+                                <div className={`absolute top-0 left-0 w-1 h-full ${isHigh ? 'bg-[#ba1a1a]' : isMed ? 'bg-brand' : 'bg-[#777587]'}`} />
 
                                 <div>
                                   <div className="flex justify-between items-start mb-3">
-                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isHigh ? 'bg-red-100 text-red-600' : isMed ? 'bg-indigo-100 text-[#3525cd]' : 'bg-gray-100 text-[#777587]'
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isHigh ? 'bg-red-100 text-red-600' : isMed ? 'bg-indigo-100 text-brand' : 'bg-gray-100 text-muted-text'
                                       }`}>
-                                      {t.priority} Priority
+                                      {t('priorityLabel', { priority: task.priority })}
                                     </span>
                                     <div className="flex items-center gap-1">
                                       <button
-                                        onClick={() => toggleTaskStatus(t.id)}
-                                        className="text-[#777587] hover:text-[#3525cd] p-1 rounded-full hover:bg-gray-100 transition-colors"
-                                        title="Cycle status checkpoint"
+                                        onClick={() => toggleTaskStatus(task.id)}
+                                        className="text-muted-text hover:text-brand p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                        title={t('cycleStatus')}
                                       >
                                         <CheckCircle2 className="w-4 h-4" />
                                       </button>
                                       <button
-                                        onClick={() => startEditTask(t)}
-                                        className="text-[#777587] hover:text-[#3525cd] p-1 rounded-full hover:bg-gray-100 transition-colors"
-                                        title="Edit task details"
+                                        onClick={() => startEditTask(task)}
+                                        className="text-muted-text hover:text-brand p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                        title={t('editTaskDetails')}
                                       >
                                         <Pencil className="w-3.5 h-3.5" />
                                       </button>
                                       <button
-                                        onClick={() => deleteTask(t.id)}
-                                        className="text-[#777587] hover:text-red-500 p-1 rounded-full hover:bg-gray-100 transition-colors"
-                                        title="Remove task completely"
+                                        onClick={() => deleteTask(task.id)}
+                                        className="text-muted-text hover:text-red-500 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                        title={t('removeTask')}
                                       >
                                         <Trash2 className="w-4 h-4" />
                                       </button>
                                     </div>
                                   </div>
 
-                                  <h3 className="font-extrabold text-md text-[#151c27] mb-1">{t.title}</h3>
+                                  <h3 className="font-extrabold text-md text-main-text mb-1">{task.title}</h3>
                                   <p className="text-xs text-[#006f64] font-medium flex items-center gap-1.5 mb-3">
                                     <School className="w-3.5 h-3.5" />
-                                    <span>{t.subject}</span>
+                                    <span>{task.subject}</span>
                                   </p>
 
-                                  <p className="text-xs text-[#464555] line-clamp-3 leading-relaxed mb-4">{t.notes}</p>
+                                  <p className="text-xs text-secondary-text line-clamp-3 leading-relaxed mb-4">{task.notes}</p>
                                 </div>
 
-                                <div className="pt-4 border-t border-[#e2e8f8] flex justify-between items-center text-[11px] text-[#777587]">
+                                <div className="pt-4 border-t border-main-border flex justify-between items-center text-[11px] text-muted-text">
                                   <div className="flex items-center gap-1">
                                     <CalendarIcon className="w-3.5 h-3.5" />
-                                    <span>{t.dueDate}</span>
+                                    <span>{task.dueDate}</span>
                                   </div>
-                                  {t.completedPercent !== undefined && (
-                                    <span className="font-bold text-[#3525cd]">{t.completedPercent}% complete</span>
+                                  {task.completedPercent !== undefined && (
+                                    <span className="font-bold text-brand">{t('percentCompleteText', { percent: task.completedPercent })}</span>
                                   )}
                                 </div>
                               </motion.div>
                             );
                           })
                       ) : (
-                        <div className="col-span-full bg-white rounded-2xl border border-[#e2e8f8] py-16 px-4 text-center space-y-3">
-                          <ListTodo className="w-12 h-12 text-[#c7c4d8] mx-auto" />
-                          <p className="font-extrabold text-md text-[#151c27]">No tasks listed under "{taskFilter}"</p>
-                          <p className="text-xs text-[#777587] max-w-xs mx-auto">Click the floating "+" icon on bottom-right to insert a custom planning checkpoint!</p>
+                        <div className="col-span-full bg-white rounded-2xl border border-main-border py-16 px-4 text-center space-y-3">
+                          <ListTodo className="w-12 h-12 text-main-border mx-auto" />
+                          <p className="font-extrabold text-md text-main-text">{t('noTasksListed', { filter: taskFilter })}</p>
+                          <p className="text-xs text-muted-text max-w-xs mx-auto">{t('clickFloatingIcon')}</p>
                           <button
                             onClick={() => setIsAddingTask(true)}
-                            className="px-4 py-2 bg-[#3525cd] text-white text-xs font-bold rounded-full shadow-xs hover:bg-[#3525cd]/90 transition-all active:scale-95 mx-auto"
+                            className="px-4 py-2 bg-brand text-white text-xs font-bold rounded-full shadow-xs hover:bg-brand/90 transition-all active:scale-95 mx-auto"
                           >
-                            + Populate Checkpoint
+                            {t('populateCheckpoint')}
                           </button>
                         </div>
                       )}
 
                       {/* Productivity card highlights */}
-                      <div className="col-span-full md:col-span-1 bg-white p-6 rounded-2xl border border-[#e2e8f8] shadow-sm flex flex-col justify-center items-center text-center space-y-3">
-                        <div className="w-12 h-12 rounded-full bg-[#f0f3ff] text-[#3525cd] flex items-center justify-center shadow-xs">
+                      <div className="col-span-full md:col-span-1 bg-white p-6 rounded-2xl border border-main-border shadow-sm flex flex-col justify-center items-center text-center space-y-3">
+                        <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center shadow-xs">
                           <Flame className="w-6 h-6 fill-current" />
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-[#151c27]">Academic Streak Tracker</p>
-                          <p className="text-2xl font-black text-[#3525cd] mt-0.5">{streakDays} Days</p>
-                          <p className="text-[11px] text-[#777587] mt-1">Keep studying daily, {currentUser?.fullName?.split(' ')[0] || 'Gabriel'}!</p>
+                          <p className="text-xs font-bold text-main-text">{t('academicStreakTracker')}</p>
+                          <p className="text-2xl font-black text-brand mt-0.5">{streakDays} {t('days')}</p>
+                          <p className="text-[11px] text-muted-text mt-1">{t('keepStudyingDaily', { name: currentUser?.fullName?.split(' ')[0] || 'Gabriel' })}</p>
                         </div>
                       </div>
 
@@ -3056,28 +3147,28 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-[#e2e8f8] shadow-lg text-center space-y-6"
+                    className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-main-border shadow-lg text-center space-y-6"
                   >
                     <div>
-                      <h2 className="text-xl font-bold text-[#151c27]">SaaS Pomodoro focus timer</h2>
-                      <p className="text-xs text-[#777587] mt-1">Tackle cognitive overload with structured deep work habits</p>
+                      <h2 className="text-xl font-bold text-main-text">{t('pomodoroTimerTitle')}</h2>
+                      <p className="text-xs text-muted-text mt-1">{t('pomodoroTimerDesc')}</p>
                     </div>
 
                     {/* Circular ring countdown display */}
                     <div className="relative w-44 h-44 mx-auto flex items-center justify-center">
-                      <div className={`absolute inset-0 rounded-full border-4 ${isTimerRunning ? 'border-[#3525cd] animate-pulse' : 'border-[#dce2f3]'}`} />
+                      <div className={`absolute inset-0 rounded-full border-4 ${isTimerRunning ? 'border-brand animate-pulse' : 'border-main-border'}`} />
                       <div className="relative z-10 space-y-1">
-                        <div className="text-4xl font-extrabold text-[#151c27] tracking-tight">
+                        <div className="text-4xl font-extrabold text-main-text tracking-tight">
                           {timerMinutes.toString().padStart(2, '0')}:{timerSeconds.toString().padStart(2, '0')}
                         </div>
-                        <p className="text-xs text-[#777587] font-semibold tracking-wider uppercase">{isTimerRunning ? 'ACTIVE FLOW' : 'PAUSED'}</p>
+                        <p className="text-xs text-muted-text font-semibold tracking-wider uppercase">{isTimerRunning ? t('activeFlow') : t('paused')}</p>
                       </div>
                     </div>
 
                     {/* Duration Preset selectors */}
                     <div className="space-y-1.5 text-left">
-                      <label className="text-xs font-bold text-[#464555] block">Session Duration</label>
-                      <div className="flex bg-[#f0f3ff] p-1 rounded-xl border border-[#e2e8f8]">
+                      <label className="text-xs font-bold text-secondary-text block">{t('sessionDuration')}</label>
+                      <div className="flex bg-brand-light p-1 rounded-xl border border-main-border">
                         {[15, 25, 45, 60].map((mins) => (
                           <button
                             key={mins}
@@ -3088,7 +3179,7 @@ export default function App() {
                               setTimerSeconds(0);
                               setIsTimerRunning(false);
                             }}
-                            className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition-all ${timerTargetMinutes === mins ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
+                            className={`flex-1 text-center py-2 rounded-lg text-xs font-bold transition-all ${timerTargetMinutes === mins ? 'bg-white text-brand shadow-xs font-extrabold scale-105' : 'text-secondary-text hover:bg-white/40'
                               }`}
                           >
                             {mins}m
@@ -3099,13 +3190,13 @@ export default function App() {
 
                     {/* Category selectors */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#464555] block text-left">Current Study Category</label>
+                      <label className="text-xs font-bold text-secondary-text block text-left">{t('currentStudyCategory')}</label>
                       <div className="flex flex-wrap gap-1.5 justify-start">
                         {['Deep Focus', 'Essay writing', 'Exam drills', 'Coding session'].map((cat) => (
                           <button
                             key={cat}
                             onClick={() => setTimerCategory(cat)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-semibold ${timerCategory === cat ? 'bg-[#3525cd] text-white shadow-sm' : 'bg-gray-100 text-[#464555] hover:bg-[#e2e8f8]'
+                            className={`px-3 py-1.5 rounded-full text-xs font-semibold ${timerCategory === cat ? 'bg-brand text-white shadow-sm' : 'bg-gray-100 text-secondary-text hover:bg-brand-light'
                               }`}
                           >
                             {cat}
@@ -3122,7 +3213,7 @@ export default function App() {
                           setTimerSeconds(0);
                           setIsTimerRunning(false);
                         }}
-                        className="w-12 h-12 bg-gray-100 text-[#464555] hover:bg-[#e2e8f8] rounded-full flex items-center justify-center transition-all duration-200 active:scale-95"
+                        className="w-12 h-12 bg-gray-100 text-secondary-text hover:bg-brand-light rounded-full flex items-center justify-center transition-all duration-200 active:scale-95"
                         title="Reset countdown"
                       >
                         <RotateCcw className="w-5 h-5" />
@@ -3130,7 +3221,7 @@ export default function App() {
 
                       <button
                         onClick={() => setIsTimerRunning(!isTimerRunning)}
-                        className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-200 active:scale-95 ${isTimerRunning ? 'bg-[#ba1a1a] hover:bg-[#ba1a1a]/90' : 'bg-[#3525cd] hover:bg-[#3525cd]/90'
+                        className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-200 active:scale-95 ${isTimerRunning ? 'bg-[#ba1a1a] hover:bg-[#ba1a1a]/90' : 'bg-brand hover:bg-brand/90'
                           }`}
                       >
                         {isTimerRunning ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current ml-1" />}
@@ -3141,48 +3232,48 @@ export default function App() {
                           // Fast advance model trigger (dev-shortcut for users to test log updates)
                           setTimerMinutes(0);
                           setTimerSeconds(3);
-                          showBannerNotification("Fast forwarded focus timer to 3 seconds.", "info");
+                          showBannerNotification(t('fastForwardTimer'), "info");
                         }}
-                        className="p-2 text-xs font-bold text-[#3525cd] hover:underline"
+                        className="p-2 text-xs font-bold text-brand hover:underline"
                         title="Skip ahead to log workout hours"
                       >
-                        Skip
+                        {t('skip')}
                       </button>
                     </div>
 
                     {/* Active Study Metrics Summary Stats */}
-                    <div className="grid grid-cols-3 gap-2 bg-[#f0f3ff] p-3.5 rounded-xl border border-[#e2e8f8] text-center">
+                    <div className="grid grid-cols-3 gap-2 bg-brand-light p-3.5 rounded-xl border border-main-border text-center">
                       <div>
-                        <p className="text-[10px] font-bold text-[#777587] uppercase">Today</p>
+                        <p className="text-[10px] font-bold text-muted-text uppercase">{t('today')}</p>
                         <p className="text-md font-extrabold text-[#006f64]">{todayStudyHours}h</p>
                       </div>
-                      <div className="border-x border-[#e2e8f8]">
-                        <p className="text-[10px] font-bold text-[#777587] uppercase">This Week</p>
-                        <p className="text-md font-extrabold text-[#3525cd]">{weeklyStudyHours}h</p>
+                      <div className="border-x border-main-border">
+                        <p className="text-[10px] font-bold text-muted-text uppercase">{t('thisWeek')}</p>
+                        <p className="text-md font-extrabold text-brand">{weeklyStudyHours}h</p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-bold text-[#777587] uppercase">Total</p>
-                        <p className="text-md font-extrabold text-[#151c27]">{studyHours}h</p>
+                        <p className="text-[10px] font-bold text-muted-text uppercase">{t('total')}</p>
+                        <p className="text-md font-extrabold text-main-text">{studyHours}h</p>
                       </div>
                     </div>
 
                     {/* Recent Completed Focus Sessions List */}
                     {studySessions.length > 0 && (
-                      <div className="text-left border-t border-[#e2e8f8] pt-4 space-y-2">
+                      <div className="text-left border-t border-main-border pt-4 space-y-2">
                         <div className="flex justify-between items-center">
-                          <h4 className="text-xs font-bold text-[#151c27]">Completed Focus Sessions ({studySessions.length})</h4>
-                          <span className="text-[10px] font-bold text-[#3525cd] bg-[#3525cd]/5 px-2 py-0.5 rounded-full">Durable Sync</span>
+                          <h4 className="text-xs font-bold text-main-text">{t('completedFocusSessions', { count: studySessions.length })}</h4>
+                          <span className="text-[10px] font-bold text-brand bg-brand/5 px-2 py-0.5 rounded-full">{t('durableSync')}</span>
                         </div>
                         <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
                           {studySessions.slice(-4).reverse().map((session, sidx) => (
                             <div key={session.id || sidx} className="flex justify-between items-center text-xs p-2.5 bg-gray-50/80 rounded-xl border border-gray-100 transition-colors hover:bg-gray-50">
                               <div className="space-y-0.5">
-                                <p className="font-extrabold text-[#151c27]">{session.category}</p>
-                                <p className="text-[10px] text-[#777587] font-medium">
+                                <p className="font-extrabold text-main-text">{session.category}</p>
+                                <p className="text-[10px] text-muted-text font-medium">
                                   {new Date(session.completed_at || session.completedAt || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(session.completed_at || session.completedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
                               </div>
-                              <span className="text-[11px] font-black text-[#3525cd] bg-white px-2 py-1 rounded-lg border border-[#e2e8f8]/80 shadow-2xs">
+                              <span className="text-[11px] font-black text-brand bg-white px-2 py-1 rounded-lg border border-main-border/80 shadow-2xs">
                                 {session.study_hours ? `${parseFloat(Number(session.study_hours).toFixed(2))}h` : `${Math.round((session.duration_seconds || 1500) / 60)}m`}
                               </span>
                             </div>
@@ -3207,16 +3298,16 @@ export default function App() {
                       {/* Primary Action Button: New Chat */}
                       <button
                         onClick={handleNewChat}
-                        className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-[#3525cd] hover:bg-[#4f46e5] text-white font-extrabold text-xs transition-all duration-200 shadow-sm active:scale-95 cursor-pointer dark:bg-[#7f75f0] dark:hover:bg-[#6b60e6]"
+                        className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-brand hover:bg-brand-hover text-white font-extrabold text-xs transition-all duration-200 shadow-sm active:scale-95 cursor-pointer dark:bg-brand dark:hover:bg-brand-hover"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>New Study Session</span>
+                        <span>{t('newStudySession')}</span>
                       </button>
 
                       {/* Saved Conversations list */}
-                      <div className="bg-white dark:bg-[#161925] p-5 rounded-2xl border border-[#e2e8f8] dark:border-[#2a2f45] shadow-xs flex-1 flex flex-col min-h-0">
-                        <h3 className="text-[11px] font-bold text-[#777587] dark:text-[#9ca3af] uppercase tracking-wider mb-3">
-                          Recent Sessions
+                      <div className="bg-white dark:bg-card-bg p-5 rounded-2xl border border-main-border dark:border-main-border shadow-xs flex-1 flex flex-col min-h-0">
+                        <h3 className="text-[11px] font-bold text-muted-text dark:text-muted-text uppercase tracking-wider mb-3">
+                          {t('recentSessions')}
                         </h3>
 
                         <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar">
@@ -3229,8 +3320,8 @@ export default function App() {
                                 key={c.id}
                                 onClick={() => !isEditing && setActiveConversationId(c.id)}
                                 className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${isActive
-                                    ? 'bg-[#f0f3ff] dark:bg-[#1e2235] text-[#3525cd] dark:text-[#7f75f0] border-[#3525cd]/20 dark:border-[#7f75f0]/20'
-                                    : 'hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] border-transparent'
+                                  ? 'bg-brand-light dark:bg-brand-light text-brand dark:text-brand border-brand/20 dark:border-brand/20'
+                                  : 'hover:bg-gray-50 dark:hover:bg-brand-light/40 text-secondary-text dark:text-muted-text border-transparent'
                                   }`}
                               >
                                 {isEditing ? (
@@ -3243,7 +3334,7 @@ export default function App() {
                                       type="text"
                                       value={renameTitleInput}
                                       onChange={(e) => setRenameTitleInput(e.target.value)}
-                                      className="w-full bg-white dark:bg-[#12141d] px-2 py-1 rounded text-xs text-[#151c27] dark:text-white border border-[#3525cd]/30 dark:border-[#7f75f0]/30 outline-none"
+                                      className="w-full bg-white dark:bg-main-bg px-2 py-1 rounded text-xs text-main-text dark:text-main-text border border-brand/30 dark:border-brand/30 outline-none"
                                       autoFocus
                                       onKeyDown={(e) => {
                                         if (e.key === 'Escape') setEditingConvId(null);
@@ -3285,9 +3376,9 @@ export default function App() {
                       </div>
 
                       {/* Help Topics / Quick Methods */}
-                      <div className="bg-white dark:bg-[#161925] p-5 rounded-2xl border border-[#e2e8f8] dark:border-[#2a2f45] shadow-xs space-y-3 shrink-0">
-                        <h3 className="text-[11px] font-bold text-[#777587] dark:text-[#9ca3af] uppercase tracking-wider">
-                          Tutor Topics
+                      <div className="bg-white dark:bg-card-bg p-5 rounded-2xl border border-main-border dark:border-main-border shadow-xs space-y-3 shrink-0">
+                        <h3 className="text-[11px] font-bold text-muted-text dark:text-muted-text uppercase tracking-wider">
+                          {t('tutorTopics')}
                         </h3>
                         <div className="space-y-1.5">
                           {[
@@ -3327,7 +3418,7 @@ export default function App() {
                               <button
                                 key={topic.label}
                                 onClick={() => handleSendChatMessage(topic.prompt)}
-                                className="w-full text-left p-2 rounded-xl text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] flex items-center gap-2.5 transition-all cursor-pointer"
+                                className="w-full text-left p-2 rounded-xl text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-brand-light/40 text-secondary-text dark:text-muted-text flex items-center gap-2.5 transition-all cursor-pointer"
                               >
                                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${topic.color}`}>
                                   <Icon className="w-3.5 h-3.5" />
@@ -3358,10 +3449,10 @@ export default function App() {
                             animate={{ x: 0 }}
                             exit={{ x: '-100%' }}
                             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                            className="lg:hidden absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-[#161925] border-r border-[#e2e8f8] dark:border-[#2a2f45] z-50 rounded-l-2xl p-5 flex flex-col"
+                            className="lg:hidden absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-card-bg border-r border-main-border dark:border-main-border z-50 rounded-l-2xl p-5 flex flex-col"
                           >
                             <div className="flex items-center justify-between mb-4">
-                              <h3 className="font-bold text-sm text-[#151c27] dark:text-white">Study Sessions</h3>
+                              <h3 className="font-bold text-sm text-main-text dark:text-main-text">{t('studySessions')}</h3>
                               <button
                                 onClick={() => setIsMobileHistoryOpen(false)}
                                 className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 cursor-pointer"
@@ -3375,10 +3466,10 @@ export default function App() {
                                 handleNewChat();
                                 setIsMobileHistoryOpen(false);
                               }}
-                              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-[#3525cd] hover:bg-[#4f46e5] text-white font-extrabold text-xs transition-all duration-200 shadow-sm active:scale-95 cursor-pointer dark:bg-[#7f75f0] mb-4 shrink-0"
+                              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-brand hover:bg-brand-hover text-white font-extrabold text-xs transition-all duration-200 shadow-sm active:scale-95 cursor-pointer dark:bg-brand mb-4 shrink-0"
                             >
                               <Plus className="w-4 h-4" />
-                              <span>New Study Session</span>
+                              <span>{t('newStudySession')}</span>
                             </button>
 
                             <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar mb-6">
@@ -3395,8 +3486,8 @@ export default function App() {
                                       }
                                     }}
                                     className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${isActive
-                                        ? 'bg-[#f0f3ff] dark:bg-[#1e2235] text-[#3525cd] dark:text-[#7f75f0] border-[#3525cd]/20 dark:border-[#7f75f0]/20'
-                                        : 'hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] border-transparent'
+                                      ? 'bg-brand-light dark:bg-brand-light text-brand dark:text-brand border-brand/20 dark:border-brand/20'
+                                      : 'hover:bg-gray-50 dark:hover:bg-brand-light/40 text-secondary-text dark:text-muted-text border-transparent'
                                       }`}
                                   >
                                     {isEditing ? (
@@ -3409,7 +3500,7 @@ export default function App() {
                                           type="text"
                                           value={renameTitleInput}
                                           onChange={(e) => setRenameTitleInput(e.target.value)}
-                                          className="w-full bg-white dark:bg-[#12141d] px-2 py-1 rounded text-xs text-[#151c27] dark:text-white border border-[#3525cd]/30 dark:border-[#7f75f0]/30 outline-none"
+                                          className="w-full bg-white dark:bg-main-bg px-2 py-1 rounded text-xs text-main-text dark:text-main-text border border-brand/30 dark:border-brand/30 outline-none"
                                           autoFocus
                                         />
                                         <button type="submit" className="p-1 text-green-600 cursor-pointer">
@@ -3440,8 +3531,8 @@ export default function App() {
                               })}
                             </div>
 
-                            <div className="border-t border-[#e2e8f8] dark:border-[#2a2f45] pt-4 space-y-3 shrink-0">
-                              <h4 className="text-[10px] font-bold text-[#777587] dark:text-[#9ca3af] uppercase tracking-wider">Tutor Tools</h4>
+                            <div className="border-t border-main-border dark:border-main-border pt-4 space-y-3 shrink-0">
+                              <h4 className="text-[10px] font-bold text-muted-text dark:text-muted-text uppercase tracking-wider">{t('tutorTools')}</h4>
                               <div className="grid grid-cols-1 gap-1.5">
                                 {[
                                   { label: '📅 Study Planner', prompt: 'I need a highly realistic, personalized 4-week study schedule for my course. Can you help me map this out with Pomodoro slots?' },
@@ -3456,7 +3547,7 @@ export default function App() {
                                       handleSendChatMessage(t.prompt);
                                       setIsMobileHistoryOpen(false);
                                     }}
-                                    className="w-full text-left p-2 rounded-lg text-[11px] font-semibold hover:bg-gray-50 dark:hover:bg-[#1e2235]/40 text-[#464555] dark:text-[#9ca3af] truncate cursor-pointer"
+                                    className="w-full text-left p-2 rounded-lg text-[11px] font-semibold hover:bg-gray-50 dark:hover:bg-brand-light/40 text-secondary-text dark:text-muted-text truncate cursor-pointer"
                                   >
                                     {t.label}
                                   </button>
@@ -3469,26 +3560,26 @@ export default function App() {
                     </AnimatePresence>
 
                     {/* Chat Messenger Box container */}
-                    <section className="flex-1 bg-white dark:bg-[#161925] rounded-2xl border border-[#e2e8f8] dark:border-[#2a2f45] flex flex-col justify-between overflow-hidden shadow-sm">
+                    <section className="flex-1 bg-white dark:bg-card-bg rounded-2xl border border-main-border dark:border-main-border flex flex-col justify-between overflow-hidden shadow-sm">
 
                       {/* Chat Header */}
-                      <header className="px-5 py-3.5 border-b border-[#e2e8f8] dark:border-[#2a2f45] flex items-center justify-between bg-white dark:bg-[#161925]">
+                      <header className="px-5 py-3.5 border-b border-main-border dark:border-main-border flex items-center justify-between bg-white dark:bg-card-bg">
                         <div className="flex items-center gap-3">
                           {/* Mobile history trigger button */}
                           <button
                             onClick={() => setIsMobileHistoryOpen(true)}
-                            className="lg:hidden flex items-center justify-center p-1.5 rounded-lg bg-[#3525cd]/10 text-[#3525cd] dark:text-[#7f75f0] hover:bg-[#3525cd]/15 active:scale-95 transition-all mr-1 cursor-pointer"
+                            className="lg:hidden flex items-center justify-center p-1.5 rounded-lg bg-brand/10 text-brand dark:text-brand hover:bg-brand/15 active:scale-95 transition-all mr-1 cursor-pointer"
                             title="Open history sidebar"
                           >
                             <ClockIcon className="w-4 h-4" />
                           </button>
 
                           <div className="w-2.5 h-2.5 rounded-full bg-[#10B981] animate-pulse" />
-                          <span className="text-xs font-bold text-[#464555] dark:text-[#9ca3af]">MindStream AI Companion</span>
+                          <span className="text-xs font-bold text-secondary-text dark:text-muted-text">{t('aiCompanion')}</span>
                         </div>
                         <button
-                          onClick={() => showBannerNotification("MindStream AI is running on Gemini 3.5 Flash server proxy", "info")}
-                          className="text-xs font-bold text-[#3525cd] dark:text-[#7f75f0] hover:underline cursor-pointer"
+                          onClick={() => showBannerNotification(t('mindstreamAIRunning'), "info")}
+                          className="text-xs font-bold text-brand dark:text-brand hover:underline cursor-pointer"
                         >
                           v3.5 Flash
                         </button>
@@ -3501,19 +3592,19 @@ export default function App() {
                           return (
                             <div key={m.id} className={`flex gap-3 max-w-[85%] ${isAI ? '' : 'ml-auto flex-row-reverse'}`}>
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${isAI
-                                  ? 'bg-[#3525cd]/10 dark:bg-[#7f75f0]/10 border-[#3223cc]/10 dark:border-[#7f75f0]/15 text-[#3525cd] dark:text-[#7f75f0]'
-                                  : 'bg-[#e2dfff] dark:bg-[#252347] border-indigo-200 dark:border-indigo-950 text-[#3525cd] dark:text-[#7f75f0]'
+                                ? 'bg-brand/10 dark:bg-brand/10 border-[#3223cc]/10 dark:border-brand/15 text-brand dark:text-brand'
+                                : 'bg-[#e2dfff] dark:bg-[#252347] border-indigo-200 dark:border-indigo-950 text-brand dark:text-brand'
                                 }`}>
                                 {isAI ? <Bot className="w-5 h-5" /> : <User className="w-5 h-5" />}
                               </div>
                               <div className={`p-4 rounded-2xl ${isAI
-                                  ? 'bg-[#f0f3ff] dark:bg-[#1e2235] rounded-tl-none text-[#151c27] dark:text-[#e2e8f0] border border-[#e2e8f8] dark:border-[#2a2f45]'
-                                  : 'bg-[#3525cd] dark:bg-[#7f75f0] text-white rounded-tr-none shadow-sm'
+                                ? 'bg-brand-light dark:bg-brand-light rounded-tl-none text-main-text dark:text-[#e2e8f0] border border-main-border dark:border-main-border'
+                                : 'bg-brand dark:bg-brand text-white rounded-tr-none shadow-sm'
                                 }`}>
                                 <div className="space-y-2">
                                   {renderMessageText(m.text)}
                                 </div>
-                                <span className={`block text-[9px] mt-2 font-bold uppercase tracking-wider ${isAI ? 'text-[#777587] dark:text-[#9ca3af]' : 'text-white/70 text-right'}`}>
+                                <span className={`block text-[9px] mt-2 font-bold uppercase tracking-wider ${isAI ? 'text-muted-text dark:text-muted-text' : 'text-white/70 text-right'}`}>
                                   {m.timestamp}
                                 </span>
                               </div>
@@ -3523,14 +3614,14 @@ export default function App() {
 
                         {isAiTyping && (
                           <div className="flex gap-3 max-w-[85%] animate-pulse">
-                            <div className="w-10 h-10 rounded-full bg-[#3525cd]/10 dark:bg-[#7f75f0]/10 flex items-center justify-center shrink-0 text-[#3525cd] dark:text-[#7f75f0]">
+                            <div className="w-10 h-10 rounded-full bg-brand/10 dark:bg-brand/10 flex items-center justify-center shrink-0 text-brand dark:text-brand">
                               <Bot className="w-5 h-5" />
                             </div>
-                            <div className="bg-[#f0f3ff] dark:bg-[#1e2235] p-4 rounded-2xl rounded-tl-none border border-[#e2e8f8] dark:border-[#2a2f45]">
+                            <div className="bg-brand-light dark:bg-brand-light p-4 rounded-2xl rounded-tl-none border border-main-border dark:border-main-border">
                               <div className="flex gap-1.5 items-center py-1.5">
-                                <span className="w-2 h-2 bg-[#3525cd] dark:bg-[#7f75f0] rounded-full animate-bounce" />
-                                <span className="w-2 h-2 bg-[#3525cd] dark:bg-[#7f75f0] rounded-full animate-bounce [animation-delay:0.2s]" />
-                                <span className="w-2 h-2 bg-[#3525cd] dark:bg-[#7f75f0] rounded-full animate-bounce [animation-delay:0.4s]" />
+                                <span className="w-2 h-2 bg-brand dark:bg-brand rounded-full animate-bounce" />
+                                <span className="w-2 h-2 bg-brand dark:bg-brand rounded-full animate-bounce [animation-delay:0.2s]" />
+                                <span className="w-2 h-2 bg-brand dark:bg-brand rounded-full animate-bounce [animation-delay:0.4s]" />
                               </div>
                             </div>
                           </div>
@@ -3540,7 +3631,7 @@ export default function App() {
                       </div>
 
                       {/* Suggestion Chips & Chat Input block */}
-                      <footer className="p-4 border-t border-[#e2e8f8] dark:border-[#2a2f45] bg-[#f9f9ff] dark:bg-[#12141d] space-y-3 shrink-0">
+                      <footer className="p-4 border-t border-main-border dark:border-main-border bg-main-bg dark:bg-main-bg space-y-3 shrink-0">
 
                         {/* Chips list mapping */}
                         <div className="flex flex-wrap gap-1.5">
@@ -3556,7 +3647,7 @@ export default function App() {
                               <button
                                 key={chip.text}
                                 onClick={() => handleSendChatMessage(chip.prompt)}
-                                className="px-3.5 py-1.5 rounded-full border border-[#3525cd]/30 dark:border-[#7f75f0]/30 hover:border-[#3525cd] dark:hover:border-[#7f75f0] text-[#3525cd] dark:text-[#7f75f0] bg-white dark:bg-[#161925] text-[11px] font-bold hover:bg-[#f0f3ff] dark:hover:bg-[#1e2235] active:scale-95 transition-all flex items-center gap-1.5 shadow-5xs cursor-pointer"
+                                className="px-3.5 py-1.5 rounded-full border border-brand/30 dark:border-brand/30 hover:border-brand dark:hover:border-[#7f75f0] text-brand dark:text-brand bg-white dark:bg-card-bg text-[11px] font-bold hover:bg-brand-light dark:hover:bg-brand-light active:scale-95 transition-all flex items-center gap-1.5 shadow-5xs cursor-pointer"
                               >
                                 <Icon className="w-3.5 h-3.5" />
                                 <span>{chip.text}</span>
@@ -3566,10 +3657,10 @@ export default function App() {
                         </div>
 
                         {/* Input line */}
-                        <div className="flex items-center gap-3 bg-white dark:bg-[#161925] border-2 border-[#e2e8f8] dark:border-[#2a2f45] rounded-2xl px-4 py-2 focus-within:border-[#3525cd] dark:focus-within:border-[#7f75f0] transition-all">
+                        <div className="flex items-center gap-3 bg-white dark:bg-card-bg border-2 border-main-border dark:border-main-border rounded-2xl px-4 py-2 focus-within:border-brand dark:focus-within:border-[#7f75f0] transition-all">
                           <button
-                            onClick={() => showBannerNotification("You can upload notes or syllabus papers directly to your workspace.", "info")}
-                            className="p-1.5 text-[#777587] hover:text-[#3525cd] dark:hover:text-[#7f75f0] transition-colors cursor-pointer"
+                            onClick={() => showBannerNotification(t('uploadNotes'), "info")}
+                            className="p-1.5 text-muted-text hover:text-brand dark:hover:text-brand transition-colors cursor-pointer"
                           >
                             <Paperclip className="w-4 h-4" />
                           </button>
@@ -3580,12 +3671,12 @@ export default function App() {
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSendChatMessage();
                             }}
-                            placeholder="Ask MindStream AI anything..."
-                            className="flex-1 bg-transparent border-none outline-none text-xs md:text-sm text-[#151c27] dark:text-white placeholder:text-[#777587]/70"
+                            placeholder={t('askMindstreamAI')}
+                            className="flex-1 bg-transparent border-none outline-none text-xs md:text-sm text-main-text dark:text-main-text placeholder:text-muted-text/70"
                           />
                           <button
                             onClick={() => handleSendChatMessage()}
-                            className="bg-[#3525cd] dark:bg-[#7f75f0] hover:bg-[#4f46e5] dark:hover:bg-[#6b60e6] text-white p-2 rounded-xl transition-all active:scale-95 shadow-sm cursor-pointer"
+                            className="bg-brand dark:bg-brand hover:bg-brand-hover dark:hover:bg-brand-hover text-white p-2 rounded-xl transition-all active:scale-95 shadow-sm cursor-pointer"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -3604,54 +3695,54 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="max-w-xl mx-auto bg-white rounded-2xl border border-[#e2e8f8] p-6 shadow-sm space-y-6"
+                    className="max-w-xl mx-auto bg-white rounded-2xl border border-main-border p-6 shadow-sm space-y-6"
                   >
-                    <div className="flex items-center gap-4 pb-4 border-b border-[#e2e8f8]">
-                      <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#3525cd]">
+                    <div className="flex items-center gap-4 pb-4 border-b border-main-border">
+                      <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-brand">
                         <img src={currentUser?.avatarUrl || IMAGES.avatarGabriel} alt="User profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       </div>
                       <div>
-                        <h3 className="font-extrabold text-lg text-[#151c27]">{currentUser?.fullName || 'Gabriel J. Semesco'}</h3>
-                        <p className="text-xs text-[#777587]">{currentUser?.studentLevel || 'Undergraduate'} • {currentUser?.email || 'gabsemesco1@gmail.com'}</p>
+                        <h3 className="font-extrabold text-lg text-main-text">{currentUser?.fullName || 'Gabriel J. Semesco'}</h3>
+                        <p className="text-xs text-muted-text">{currentUser?.studentLevel || 'Undergraduate'} • {currentUser?.email || 'gabsemesco1@gmail.com'}</p>
                       </div>
                     </div>
 
                     <div className="space-y-4">
-                      <h4 className="text-xs uppercase tracking-wider font-bold text-[#777587]">Academic Milestones completed</h4>
+                      <h4 className="text-xs uppercase tracking-wider font-bold text-muted-text">{t('academicMilestonesCompleted')}</h4>
 
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-[#f0f3ff] p-4 rounded-xl border border-[#e2e8f8]">
-                          <span className="text-xs text-[#777587]">Study Streak</span>
-                          <p className="text-xl font-bold text-[#3525cd] mt-0.5">{streakDays} Checkpoints</p>
+                        <div className="bg-brand-light p-4 rounded-xl border border-main-border">
+                          <span className="text-xs text-muted-text">{t('studyStreak')}</span>
+                          <p className="text-xl font-bold text-brand mt-0.5">{t('streakCheckpoints', { count: streakDays })}</p>
                         </div>
-                        <div className="bg-[#f0f3ff] p-4 rounded-xl border border-[#e2e8f8]">
-                          <span className="text-xs text-[#777587]">Assignments logs</span>
-                          <p className="text-xl font-bold text-[#006f64] mt-0.5">{completedCount} Completed</p>
+                        <div className="bg-brand-light p-4 rounded-xl border border-main-border">
+                          <span className="text-xs text-muted-text">{t('assignmentsLogs')}</span>
+                          <p className="text-xl font-bold text-[#006f64] mt-0.5">{t('assignmentsCompleted', { count: completedCount })}</p>
                         </div>
                       </div>
 
-                      <div className="bg-[#f9f9ff] p-4 rounded-xl border border-[#e2e8f8] space-y-2 text-xs">
-                        <p className="font-bold text-[#151c27]">Academic settings &amp; preferences</p>
-                        <ul className="space-y-2 mt-2 text-[#464555]">
+                      <div className="bg-main-bg p-4 rounded-xl border border-main-border space-y-2 text-xs">
+                        <p className="font-bold text-main-text">{t('academicSettings')}</p>
+                        <ul className="space-y-2 mt-2 text-secondary-text">
                           <li className="flex justify-between">
-                            <span>Automatic summary alerts</span>
-                            <span className="text-[#3525cd] font-bold">Enabled</span>
+                            <span>{t('autoSummaryAlerts')}</span>
+                            <span className="text-brand font-bold">{t('enabled')}</span>
                           </li>
                           <li className="flex justify-between">
-                            <span>Notifications sync channels</span>
-                            <span className="text-[#3525cd] font-bold">gabsemesco1@gmail.com</span>
+                            <span>{t('notificationsSyncChannels')}</span>
+                            <span className="text-brand font-bold">gabsemesco1@gmail.com</span>
                           </li>
                           <li className="flex justify-between">
-                            <span>Class workspace instance ID</span>
-                            <span className="font-mono text-[10px] text-[#777587]">611c2af5-f1ef</span>
+                            <span>{t('classWorkspaceInstanceId')}</span>
+                            <span className="font-mono text-[10px] text-muted-text">611c2af5-f1ef</span>
                           </li>
                           <li className="flex justify-between items-center relative">
-                            <span>🌐 Language</span>
+                            <span>🌐 {t('language')}</span>
 
                             <button
                               type="button"
                               onClick={() => setLanguageMenuOpen(!languageMenuOpen)}
-                              className="flex items-center gap-2 text-[#3525cd] font-bold hover:opacity-80"
+                              className="flex items-center gap-2 text-brand font-bold hover:opacity-80"
                             >
                               {i18n.language === "fr"
                                 ? "Français"
@@ -3663,10 +3754,10 @@ export default function App() {
                             </button>
 
                             {languageMenuOpen && (
-                              <div className="absolute right-0 top-8 bg-white border border-[#e2e8f8] rounded-lg shadow-lg z-50 w-44 overflow-hidden">
+                              <div className="absolute right-0 top-8 bg-white border border-main-border rounded-lg shadow-lg z-50 w-44 overflow-hidden">
 
                                 <button
-                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  className="w-full text-left px-4 py-2 hover:bg-brand-light"
                                   onClick={() => {
                                     i18n.changeLanguage("en");
                                     setLanguageMenuOpen(false);
@@ -3676,7 +3767,7 @@ export default function App() {
                                 </button>
 
                                 <button
-                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  className="w-full text-left px-4 py-2 hover:bg-brand-light"
                                   onClick={() => {
                                     i18n.changeLanguage("fr");
                                     setLanguageMenuOpen(false);
@@ -3686,7 +3777,7 @@ export default function App() {
                                 </button>
 
                                 <button
-                                  className="w-full text-left px-4 py-2 hover:bg-[#f0f3ff]"
+                                  className="w-full text-left px-4 py-2 hover:bg-brand-light"
                                   onClick={() => {
                                     i18n.changeLanguage("id");
                                     setLanguageMenuOpen(false);
@@ -3712,23 +3803,23 @@ export default function App() {
           {/* Floating Action Button (FAB) triggered modal opener */}
           <button
             onClick={() => setIsAddingTask(true)}
-            className="fixed bottom-20 right-6 md:bottom-8 md:right-8 w-14 h-14 bg-[#3525cd] hover:bg-[#4f46e5] text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 active:scale-95 hover:scale-105 z-50 group"
+            className="fixed bottom-20 right-6 md:bottom-8 md:right-8 w-14 h-14 bg-brand hover:bg-brand-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 active:scale-95 hover:scale-105 z-50 group"
             title="Create a new task..."
           >
             <Plus className="w-6 h-6 stroke-[3px]" />
-            <span className="absolute right-16 bg-[#151c27] text-white text-[11px] font-bold tracking-tight px-3 py-1.5 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-              Add New Task
+            <span className="absolute right-16 bg-main-text text-white text-[11px] font-bold tracking-tight px-3 py-1.5 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+              {t('addNewTask')}
             </span>
           </button>
 
           {/* Botom navigation shell exclusively on mobile devices */}
-          <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-11/12 max-w-sm z-50 rounded-2xl backdrop-blur-md bg-white/95 shadow-xl border border-[#e2e8f8] flex justify-around items-center px-2 py-2">
+          <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-11/12 max-w-sm z-50 rounded-2xl backdrop-blur-md bg-white/95 dark:bg-card-bg/95 shadow-xl border border-main-border flex justify-around items-center px-2 py-2">
             {[
-              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-              { id: 'calendar', label: 'Calendar', icon: CalendarIcon },
-              { id: 'tasks', label: 'Tasks', icon: ListTodo },
-              { id: 'timer', label: 'Timer', icon: ClockIcon },
-              { id: 'aitutor', label: 'AI Tutor', icon: Cpu }
+              { id: 'dashboard', label: t('dashboard'), icon: LayoutDashboard },
+              { id: 'calendar', label: t('calendar'), icon: CalendarIcon },
+              { id: 'tasks', label: t('tasks'), icon: ListTodo },
+              { id: 'timer', label: t('timer'), icon: ClockIcon },
+              { id: 'aitutor', label: t('aiTutor'), icon: Cpu }
             ].map((navItem) => {
               const Icon = navItem.icon;
               const isActive = activeTab === navItem.id;
@@ -3736,7 +3827,7 @@ export default function App() {
                 <button
                   key={navItem.id}
                   onClick={() => setActiveTab(navItem.id as any)}
-                  className={`flex flex-col items-center justify-center px-4 py-1.5 rounded-xl transition-all duration-200 ${isActive ? 'bg-[#3525cd]/10 text-[#3525cd] scale-105 font-bold' : 'text-[#777587]/80 hover:bg-[#f0f3ff]'
+                  className={`flex flex-col items-center justify-center px-4 py-1.5 rounded-xl transition-all duration-200 ${isActive ? 'bg-brand/10 text-brand scale-105 font-bold' : 'text-muted-text/80 hover:bg-brand-light'
                     }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -3749,7 +3840,7 @@ export default function App() {
           {/* 4. NEW TASK MODAL POPUP DIALOG */}
           <AnimatePresence>
             {isAddingTask && (
-              <div className="fixed inset-0 bg-[#151c27]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
+              <div className="fixed inset-0 bg-main-text/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
 
                 {/* Backdrop Click */}
                 <div className="absolute inset-0" onClick={closeAddTaskModal} />
@@ -3759,20 +3850,20 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: 30 }}
                   transition={{ duration: 0.2 }}
-                  className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#e2e8f8] overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
+                  className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-main-border overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
                 >
                   <form onSubmit={handleCreateTask} className="flex flex-col h-full max-h-[90vh] md:max-h-[85vh] overflow-hidden">
 
                     {/* Modal Header */}
-                    <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-[#e2e8f8] bg-white z-10">
+                    <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-main-border bg-white z-10">
                       <button
                         type="button"
                         onClick={closeAddTaskModal}
-                        className="p-1.5 hover:bg-gray-100 rounded-full text-[#777587] hover:text-[#3525cd] transition-colors"
+                        className="p-1.5 hover:bg-gray-100 rounded-full text-muted-text hover:text-brand transition-colors"
                       >
                         <X className="w-5 h-5 animate-none" />
                       </button>
-                      <h1 className="text-md font-extrabold text-[#151c27] tracking-tight">{editingTask ? 'Edit Task' : 'New Task'}</h1>
+                      <h1 className="text-md font-extrabold text-main-text tracking-tight">{editingTask ? t('editTaskTitle') : t('newTaskTitle')}</h1>
                       <div className="w-8 shrink-0" /> {/* Centering balance */}
                     </header>
 
@@ -3780,58 +3871,58 @@ export default function App() {
                     <div className="flex-1 p-6 space-y-5 overflow-y-auto no-scrollbar">
 
                       {/* Floating draft icon ribbon */}
-                      <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-[#e2e8f8] flex items-center justify-center">
-                        <ListTodo className="w-10 h-10 text-[#3525cd]/45 select-none" />
+                      <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-main-border flex items-center justify-center">
+                        <ListTodo className="w-10 h-10 text-brand/45 select-none" />
                       </div>
 
                       {/* Title */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Task Title</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('taskTitleLabel')}</label>
                         <input
                           type="text"
                           required
                           value={taskTitle}
                           onChange={(e) => setTaskTitle(e.target.value)}
-                          placeholder="What needs to be done?"
-                          className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                          placeholder={t('whatNeedsToBeDone')}
+                          className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                         />
                       </div>
 
                       {/* Course / Subject */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Subject</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('subjectLabel')}</label>
                         <input
                           type="text"
                           required
                           value={taskSubject}
                           onChange={(e) => setTaskSubject(e.target.value)}
-                          placeholder="e.g. Computer Science, Mathematics"
-                          className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                          placeholder={t('subjectPlaceholder')}
+                          className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                         />
                       </div>
 
                       {/* Due Date */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Due Date</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('dueDateLabel')}</label>
                         <input
                           type="date"
                           required
                           value={taskDueDate}
                           onChange={(e) => setTaskDueDate(e.target.value)}
-                          className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                          className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                         />
                       </div>
 
                       {/* Priority segmented tabs */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5 block">Priority</label>
-                        <div className="flex bg-[#f0f3ff] p-1 rounded-xl border border-[#e2e8f8]">
+                        <label className="text-xs font-bold text-secondary-text ml-0.5 block">{t('priorityTitle')}</label>
+                        <div className="flex bg-brand-light p-1 rounded-xl border border-main-border">
                           {(['low', 'medium', 'high'] as Priority[]).map((p) => (
                             <button
                               key={p}
                               type="button"
                               onClick={() => setTaskPriority(p)}
-                              className={`flex-1 text-center py-2 rounded-lg text-xs font-bold uppercase transition-all ${taskPriority === p ? 'bg-white text-[#3525cd] shadow-xs' : 'text-[#464555] hover:bg-white/40'
+                              className={`flex-1 text-center py-2 rounded-lg text-xs font-bold uppercase transition-all ${taskPriority === p ? 'bg-white text-brand shadow-xs' : 'text-secondary-text hover:bg-white/40'
                                 }`}
                             >
                               {p}
@@ -3842,32 +3933,32 @@ export default function App() {
 
                       {/* Notes */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Notes</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('notesLabel')}</label>
                         <textarea
                           value={taskNotes}
                           onChange={(e) => setTaskNotes(e.target.value)}
-                          placeholder="Add secondary links, formulas, or checklists..."
+                          placeholder={t('notesPlaceholder')}
                           rows={3}
-                          className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white resize-none"
+                          className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white resize-none"
                         />
                       </div>
                     </div>
 
                     {/* Actions Sticky Footer */}
-                    <footer className="shrink-0 p-6 border-t border-[#e2e8f8] bg-white flex gap-3 text-sm">
+                    <footer className="shrink-0 p-6 border-t border-main-border bg-white flex gap-3 text-sm">
                       <button
                         type="button"
                         onClick={closeAddTaskModal}
-                        className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs text-[#464555] bg-gray-100 hover:bg-[#e2e8f8] transition-colors active:scale-95"
+                        className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs text-secondary-text bg-gray-100 hover:bg-brand-light transition-colors active:scale-95"
                       >
-                        Cancel
+                        {t('cancel')}
                       </button>
                       <button
                         type="submit"
-                        className="flex-[2] py-3 px-4 rounded-xl font-semibold text-xs text-white bg-[#3525cd] hover:bg-[#4f46e5] shadow-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+                        className="flex-[2] py-3 px-4 rounded-xl font-semibold text-xs text-white bg-brand hover:bg-brand-hover shadow-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>{editingTask ? 'Update Task' : 'Save Task'}</span>
+                        <span>{editingTask ? t('updateTask') : t('saveTask')}</span>
                       </button>
                     </footer>
 
@@ -3880,7 +3971,7 @@ export default function App() {
           {/* 4.5. NEW CALENDAR EVENT MODAL POPUP DIALOG */}
           <AnimatePresence>
             {isAddingEvent && (
-              <div className="fixed inset-0 bg-[#151c27]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
+              <div className="fixed inset-0 bg-main-text/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 md:p-6">
 
                 {/* Backdrop Click */}
                 <div className="absolute inset-0" onClick={closeAddEventModal} />
@@ -3890,20 +3981,20 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: 30 }}
                   transition={{ duration: 0.2 }}
-                  className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#e2e8f8] overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
+                  className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-main-border overflow-hidden flex flex-col max-h-[90vh] md:max-h-[85vh]"
                 >
                   <form onSubmit={handleCreateEvent} className="flex flex-col h-full max-h-[90vh] md:max-h-[85vh] overflow-hidden">
 
                     {/* Modal Header */}
-                    <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-[#e2e8f8] bg-white z-10">
+                    <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-main-border bg-white z-10">
                       <button
                         type="button"
                         onClick={closeAddEventModal}
-                        className="p-1.5 hover:bg-gray-100 rounded-full text-[#777587] hover:text-[#3525cd] transition-colors"
+                        className="p-1.5 hover:bg-gray-100 rounded-full text-muted-text hover:text-brand transition-colors"
                       >
                         <X className="w-5 h-5 animate-none" />
                       </button>
-                      <h1 className="text-md font-extrabold text-[#151c27] tracking-tight">{editingEvent ? 'Edit Event' : 'New Event'}</h1>
+                      <h1 className="text-md font-extrabold text-main-text tracking-tight">{editingEvent ? t('editEventTitle') : t('newEventTitle')}</h1>
                       <div className="w-8 shrink-0" /> {/* Centering balance */}
                     </header>
 
@@ -3911,68 +4002,68 @@ export default function App() {
                     <div className="flex-1 p-6 space-y-5 overflow-y-auto no-scrollbar">
 
                       {/* Floating draft icon ribbon */}
-                      <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-[#e2e8f8] flex items-center justify-center">
-                        <CalendarIcon className="w-10 h-10 text-[#3525cd]/45 select-none" />
+                      <div className="relative w-full h-24 rounded-xl bg-gradient-to-br from-[#3525cd]/5 to-[#6df5e1]/10 border border-main-border flex items-center justify-center">
+                        <CalendarIcon className="w-10 h-10 text-brand/45 select-none" />
                       </div>
 
                       {/* Title */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Event Title</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('eventTitleLabel')}</label>
                         <input
                           type="text"
                           required
                           value={eventTitle}
                           onChange={(e) => setEventTitle(e.target.value)}
-                          placeholder="What is this event?"
-                          className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                          placeholder={t('eventTitlePlaceholder')}
+                          className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                         />
                       </div>
 
                       {/* Subject */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5">Subject</label>
+                        <label className="text-xs font-bold text-secondary-text ml-0.5">{t('subjectLabel')}</label>
                         <div className="relative">
                           <select
                             required
                             value={eventSubject}
                             onChange={(e) => setEventSubject(e.target.value)}
-                            className="w-full appearance-none px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white pr-10"
+                            className="w-full appearance-none px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white pr-10"
                           >
-                            <option value="">Select a subject</option>
-                            <option value="Computer Science">Computer Science</option>
-                            <option value="Mathematics">Mathematics</option>
-                            <option value="Modern History">Modern History</option>
-                            <option value="Applied Physics">Applied Physics</option>
-                            <option value="Biology">Biology</option>
-                            <option value="General Study">General Study</option>
+                            <option value="">{t('selectSubject')}</option>
+                            <option value="Computer Science">{t('subjectComputerScience')}</option>
+                            <option value="Mathematics">{t('subjectMathematics')}</option>
+                            <option value="Modern History">{t('subjectModernHistory')}</option>
+                            <option value="Applied Physics">{t('subjectAppliedPhysics')}</option>
+                            <option value="Biology">{t('subjectBiology')}</option>
+                            <option value="General Study">{t('subjectGeneralStudy')}</option>
                           </select>
-                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 w-5 h-5 text-[#777587] pointer-events-none" />
+                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 w-5 h-5 text-muted-text pointer-events-none" />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         {/* Event Date */}
                         <div className="space-y-1.5 text-left">
-                          <label className="text-xs font-bold text-[#464555] ml-0.5">Date</label>
+                          <label className="text-xs font-bold text-secondary-text ml-0.5">{t('dateLabel')}</label>
                           <input
                             type="date"
                             required
                             value={eventDate}
                             onChange={(e) => setEventDate(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                            className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                           />
                         </div>
 
                         {/* Time */}
                         <div className="space-y-1.5 text-left">
-                          <label className="text-xs font-bold text-[#464555] ml-0.5">Time</label>
+                          <label className="text-xs font-bold text-secondary-text ml-0.5">{t('timeLabel')}</label>
                           <input
                             type="text"
                             required
                             value={eventTime}
                             onChange={(e) => setEventTime(e.target.value)}
-                            placeholder="e.g. 11:30 AM"
-                            className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                            placeholder={t('timePlaceholder')}
+                            className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                           />
                         </div>
                       </div>
@@ -3980,7 +4071,7 @@ export default function App() {
                       <div className="grid grid-cols-2 gap-4">
                         {/* Duration */}
                         <div className="space-y-1.5 text-left">
-                          <label className="text-xs font-bold text-[#464555] ml-0.5">Duration (Hours)</label>
+                          <label className="text-xs font-bold text-secondary-text ml-0.5">{t('durationLabel')}</label>
                           <input
                             type="number"
                             step="0.5"
@@ -3988,39 +4079,39 @@ export default function App() {
                             required
                             value={eventDuration}
                             onChange={(e) => setEventDuration(parseFloat(e.target.value))}
-                            className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                            className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                           />
                         </div>
 
                         {/* Location */}
                         <div className="space-y-1.5 text-left">
-                          <label className="text-xs font-bold text-[#464555] ml-0.5">Location</label>
+                          <label className="text-xs font-bold text-secondary-text ml-0.5">{t('locationLabel')}</label>
                           <input
                             type="text"
                             required
                             value={eventLocation}
                             onChange={(e) => setEventLocation(e.target.value)}
-                            placeholder="e.g. Library Room 4"
-                            className="w-full px-4 py-3 rounded-xl border border-[#c7c4d8]/70 focus:border-[#3525cd] focus:ring-4 focus:ring-[#3525cd]/10 transition-all outline-none text-xs md:text-sm text-[#151c27] bg-white"
+                            placeholder={t('locationPlaceholder')}
+                            className="w-full px-4 py-3 rounded-xl border border-main-border focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all outline-none text-xs md:text-sm text-main-text bg-white"
                           />
                         </div>
                       </div>
 
                       {/* Type segmented tabs */}
                       <div className="space-y-1.5 text-left">
-                        <label className="text-xs font-bold text-[#464555] ml-0.5 block">Event Type</label>
-                        <div className="flex bg-[#f0f3ff] p-1 rounded-xl border border-[#e2e8f8]">
+                        <label className="text-xs font-bold text-secondary-text ml-0.5 block">{t('eventTypeLabel')}</label>
+                        <div className="flex bg-brand-light p-1 rounded-xl border border-main-border">
                           {([
-                            { id: 'study', label: 'Study' },
-                            { id: 'class', label: 'Class' },
-                            { id: 'exam', label: 'Exam' },
-                            { id: 'submission', label: 'Assignment' }
+                            { id: 'study', label: t('eventTypeStudy') },
+                            { id: 'class', label: t('eventTypeClass') },
+                            { id: 'exam', label: t('eventTypeExam') },
+                            { id: 'submission', label: t('eventTypeAssignment') }
                           ]).map((t) => (
                             <button
                               key={t.id}
                               type="button"
                               onClick={() => setEventType(t.id as any)}
-                              className={`flex-1 text-center py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${eventType === t.id ? 'bg-white text-[#3525cd] shadow-xs font-extrabold scale-105' : 'text-[#464555] hover:bg-white/40'
+                              className={`flex-1 text-center py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${eventType === t.id ? 'bg-white text-brand shadow-xs font-extrabold scale-105' : 'text-secondary-text hover:bg-white/40'
                                 }`}
                             >
                               {t.label}
@@ -4031,20 +4122,20 @@ export default function App() {
                     </div>
 
                     {/* Actions Sticky Footer */}
-                    <footer className="shrink-0 p-6 border-t border-[#e2e8f8] bg-white flex gap-3 text-sm">
+                    <footer className="shrink-0 p-6 border-t border-main-border bg-white flex gap-3 text-sm">
                       <button
                         type="button"
                         onClick={closeAddEventModal}
-                        className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs text-[#464555] bg-gray-100 hover:bg-[#e2e8f8] transition-colors active:scale-95"
+                        className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs text-secondary-text bg-gray-100 hover:bg-brand-light transition-colors active:scale-95"
                       >
-                        Cancel
+                        {t('cancel')}
                       </button>
                       <button
                         type="submit"
-                        className="flex-[2] py-3 px-4 rounded-xl font-semibold text-xs text-white bg-[#3525cd] hover:bg-[#4f46e5] shadow-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+                        className="flex-[2] py-3 px-4 rounded-xl font-semibold text-xs text-white bg-brand hover:bg-brand-hover shadow-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>{editingEvent ? 'Update Event' : 'Save Event'}</span>
+                        <span>{editingEvent ? t('updateEvent') : t('saveEvent')}</span>
                       </button>
                     </footer>
 
@@ -4057,25 +4148,25 @@ export default function App() {
           {/* 5. SEARCH OVERLAY POPUP DIALOG */}
           <AnimatePresence>
             {showSearch && (
-              <div className="fixed inset-0 bg-[#151c27]/50 backdrop-blur-xs z-[110] flex items-start justify-center pt-20 px-4">
+              <div className="fixed inset-0 bg-main-text/50 backdrop-blur-xs z-[110] flex items-start justify-center pt-20 px-4">
                 <div className="absolute inset-0" onClick={() => setShowSearch(false)} />
                 <motion.div
                   initial={{ opacity: 0, y: -20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="relative w-full max-w-lg bg-white rounded-2xl border border-[#e2e8f8] shadow-2xl overflow-hidden p-6 space-y-4"
+                  className="relative w-full max-w-lg bg-white rounded-2xl border border-main-border shadow-2xl overflow-hidden p-6 space-y-4"
                 >
-                  <div className="flex items-center gap-3 border-b border-[#e2e8f8] pb-3">
-                    <Search className="w-5 h-5 text-[#3525cd]" />
+                  <div className="flex items-center gap-3 border-b border-main-border pb-3">
+                    <Search className="w-5 h-5 text-brand" />
                     <input
                       autoFocus
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Type course, exam, milestone, or task to filter..."
-                      className="flex-1 bg-transparent border-none outline-none text-sm text-[#151c27]"
+                      placeholder={t('searchPlaceholder')}
+                      className="flex-1 bg-transparent border-none outline-none text-sm text-main-text"
                     />
-                    <button onClick={() => setShowSearch(false)} className="text-[#777587] hover:text-[#151c27]">
+                    <button onClick={() => setShowSearch(false)} className="text-muted-text hover:text-main-text">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
@@ -4088,32 +4179,32 @@ export default function App() {
                         t.subject.toLowerCase().includes(searchQuery.toLowerCase())
                       ).length > 0 ? (
                         tasks
-                          .filter((t) =>
-                            t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            t.subject.toLowerCase().includes(searchQuery.toLowerCase())
+                          .filter((task) =>
+                            task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            task.subject.toLowerCase().includes(searchQuery.toLowerCase())
                           )
-                          .map((t) => (
+                          .map((task) => (
                             <div
-                              key={t.id}
+                              key={task.id}
                               onClick={() => {
                                 setShowSearch(false);
                                 setActiveTab('tasks');
-                                setTaskFilter(t.status);
+                                setTaskFilter(task.status);
                               }}
-                              className="p-3 bg-[#f0f3ff] hover:bg-[#e2dfff]/60 rounded-xl border border-[#e2e8f8] flex justify-between items-center cursor-pointer transition-colors"
+                              className="p-3 bg-brand-light hover:bg-[#e2dfff]/60 rounded-xl border border-main-border flex justify-between items-center cursor-pointer transition-colors"
                             >
                               <div>
-                                <h4 className="text-xs font-bold text-[#151c27]">{t.title}</h4>
-                                <p className="text-[10px] text-[#777587]">{t.subject} • Status: {t.status}</p>
+                                <h4 className="text-xs font-bold text-main-text">{task.title}</h4>
+                                <p className="text-[10px] text-muted-text">{task.subject} • {t('statusLabel')}: {task.status}</p>
                               </div>
-                              <ArrowRight className="w-4 h-4 text-[#3525cd]" />
+                              <ArrowRight className="w-4 h-4 text-brand" />
                             </div>
                           ))
                       ) : (
-                        <p className="text-xs text-center text-[#777587] py-4">No matching course checkpoints found.</p>
+                        <p className="text-xs text-center text-muted-text py-4">{t('noSearchMatches')}</p>
                       )
                     ) : (
-                      <p className="text-xs text-[#777587] text-center py-4">Search checks are running instantly...</p>
+                      <p className="text-xs text-muted-text text-center py-4">{t('searchRunning')}</p>
                     )}
                   </div>
                 </motion.div>

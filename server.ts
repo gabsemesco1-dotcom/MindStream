@@ -3,6 +3,14 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import {
+  MINDSTREAM_SYSTEM_INSTRUCTION,
+  MINDSTREAM_FALLBACK_NO_API_KEY,
+  MINDSTREAM_ERROR_HIGH_TRAFFIC,
+  MINDSTREAM_ERROR_CONNECTION,
+  formatContextForPrompt
+} from "./src/lib/aiPrompt";
+import { extractAction } from "./src/lib/actionParser";
 
 dotenv.config();
 
@@ -38,10 +46,10 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API endpoint for server-side Gemini Study Assistant
+  // API endpoint for server-side MindStream AI Companion
   app.post("/api/gemini/chat", async (req, res) => {
     try {
-      const { message, history } = req.body;
+      const { message, history, context } = req.body;
       if (!message) {
         res.status(400).json({ error: "Message is required." });
         return;
@@ -51,20 +59,18 @@ async function startServer() {
       try {
         ai = getGeminiClient();
       } catch (err: any) {
-        // Fallback gracefully with mock expert response if API key is not configured, instructing the user
+        // Fallback gracefully if API key is not configured, instructing the user
         console.warn("Gemini Client init issue:", err.message);
         res.json({
-          text: `[SYSTEM fallback: GEMINI_API_KEY is not configured in the Secrets panel, using localized high-yield guidelines instead]\n\nI can help summarize elements of your studies like the **Krebs cycle**:\n- **Location**: Mitochondrial matrix of eukaryotes.\n- **Inputs**: Acetyl-CoA derived from pyruvate.\n- **Outputs per run**: 3 NADH, 1 FADH2, 1 GTP/ATP, 2 CO2.\n- **Crucial Enzyme**: Citrate synthase catalyzes the first reaction.\n\n*Please configure your GEMINI_API_KEY in the Secrets tab to allow real-time custom tutoring!*`
+          text: MINDSTREAM_FALLBACK_NO_API_KEY,
+          action: null
         });
         return;
       }
 
-      // Structure system prompt to behave as MindStream AI Study Companion
-      const systemInstruction = 
-        "You are MindStream's AI Study Assistant, an elite academic tutor. " +
-        "Help the user study smarter, organize curricula, summarize papers, and generate exam prep questions. " +
-        "Always adopt an intellectually stimulating, clear, encouraging, and pedagogically sound tone. " +
-        "Style key academic vocabulary using Markdown bold and bulleted summaries for high legibility.";
+      // Structure system prompt with real-time workspace context
+      const contextSnippet = formatContextForPrompt(context);
+      const systemInstruction = MINDSTREAM_SYSTEM_INSTRUCTION + contextSnippet;
 
       // Re-map history to the expected structure if provided, or supply as contents.
       // With @google/genai, ai.models.generateContent accepts content lists.
@@ -132,10 +138,10 @@ async function startServer() {
 
             // If it's a non-503 error, or we ran out of retries on the final model, handle responses
             if (is503Error && i === models.length - 1) {
-              res.json({ text: "Gemini is currently experiencing heavy traffic. Please try again in a few moments." });
+              res.json({ text: MINDSTREAM_ERROR_HIGH_TRAFFIC, action: null });
               return;
             } else if (!is503Error) {
-              res.json({ text: "I encountered an issue connecting to Gemini. Please verify your API key and try again in a moment." });
+              res.json({ text: MINDSTREAM_ERROR_CONNECTION, action: null });
               return;
             }
 
@@ -149,12 +155,15 @@ async function startServer() {
         }
       }
       if (!response) {
-        throw new Error("Gemini returned no response.");
+        throw new Error("No response received from AI model.");
       }
 
-      res.json({ text: response.text });
+      const rawText = response.text || "";
+      const { cleanText, action } = extractAction(rawText);
+
+      res.json({ text: cleanText, action });
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
+      console.error("AI API Error:", error);
       res.status(500).json({ error: "An unexpected error occurred. Please try again later." });
     }
   });

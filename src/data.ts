@@ -119,19 +119,19 @@ export const INITIAL_CHAT: ChatMessage[] = [
   {
     id: 'msg-1',
     role: 'assistant',
-    text: "Hello! I'm your MindStream AI Assistant. Ready to dive into some productive studying? How can I help you today?",
+    text: "Hello! I'm your MindStream AI Companion. How can I help you plan, organize, brainstorm, or solve your goals today?",
     timestamp: '10:00 AM',
   },
   {
     id: 'msg-2',
     role: 'user',
-    text: 'I have an exam on Molecular Biology tomorrow. I need a quick summary of the Krebs cycle and a few practice questions.',
+    text: 'Can you help me break down a complex project into manageable milestones and set up a prioritized checklist?',
     timestamp: '10:02 AM',
   },
   {
     id: 'msg-3',
     role: 'assistant',
-    text: "Great choice! The Krebs cycle is essential. I'm preparing a concise summary and 5 high-yield practice questions for you right now...",
+    text: "I'd be glad to help. Let's outline the core deliverables, identify key dependencies, and structure a practical step-by-step action plan.",
     timestamp: '10:03 AM',
   }
 ];
@@ -139,7 +139,8 @@ export const INITIAL_CHAT: ChatMessage[] = [
 export const IMAGES = {
   illustrationSlide1: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDQ1DNbbrSZNgy0G6s6fncfVWNxb91EGTYmffB7qnV0SgGYMwocTRJmoFnmYVRMNayR_VfMqN5OhW4ZreBB7PBk3njMbeOFh9JekL_n5qdt3dmyW1hQTlr1QjXuu-tFzHqZI4t99DJJtEPv-ixeju6snbom7-04yNh0TymlBeoxJpljn34MA6BUMBzjWuFDbwRoryI33O77GRsf1YZTKpqXJDpw8ry-FfluBy-9mL4pUCyJkPe4aBxjN2ojWkwKMtTSZ1LVlS6Ir2E',
   illustrationSlide2: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCjEiOtHTpJ_PpS7Pc1_Wkj-WaErzXcXNh42FOrNwwJM_0ospxtOnLIrQYBNlYTNwRYO983lXWvV__BJFJA8pCim-_5HvNKyI112HQUge3Zf6En5Ryhkhv12EadZuHzDKUxACUXU2eays4N7YXo45oZdpgCUCj1DG1UhLVE2KjmZ5JUMYni43hONgeXKQVcgdS32hPsrhqsJHAKSvyJ3zwKjmhKmNBi3VF9Lbp-3eEd-6i2hxfPKN8cl9WRNrw_ST9owhivaebSlU8',
-  illustrationSlide3: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCiWP6s28XVw8xDTC9lwrRa6kYqBYdCpWM5HHEGa_wmq_ruIvicMjkG5BlNJEDoSj-S_TujxAu9vruR0j3mq4nCkpKTYOhBw8DD0Jl0BUhUHfexq2PCudNfQAiQgCxuy-S7_ZtPo3lVdSedSMEQoEwRIzoXeOZIjEwt-QlAVfZr6lV33-i6-rhDCKTZ4botFmP5O4NNsmTiPeMiNHJNEIDUQjjPVJinFNZ3Gh6q_R4JkGnF4gHA72yqdN91pA9_wgz-98LIjMNQO6Q',
+  illustrationSlide3: '/images/slide3.png',
+  illustrationSlide4: '/images/slide4.png',
   avatarGabriel: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCoPslQk9V16K6B0sQ7scwkIb2k8rj_bSAjSv1Q71RhMu3vlCV89cpyLSiCOoWF7W7I5oOQcqw3hUSX3UNbmnIibVdtO6Y12uxotsz0AzDb8hBtJ3kSMVFk2x0tk2cGMp98dvjN_GiKGcaLr9OKIlNhdTy59Nqs_QPdgtv3RjwYpDR6OrRpRBivJfJiD2xTL5kbOpducvxUAXi9zOW-JWdMwugexY_SuF0dV1rcv4_8WrZ30lvKhIh4UwCd82DWKjIpGlLaQnv1Zgs',
   avatarFemale: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDghsNZCuQAc1iKI1HqGdmf2eyA-dXdVETzO7DUVj3tIOeMQAMe5ZUSVilTMj7vZ4LBMPuw1jYdSZkr3ZfO676axjo2AFsipaLbQCcbvtt2OcHCKUF5La3tJJoY4TwXKmzMb4K1YwDe3hJG-9pJ5qVAmOOkAyE4w8Knfvu3V7oKjpX2d3l74-Pst5cKrCOa3IhaSDNGZvLX9QpdvhSdOjUNNzM-gyx3qxnK_00ID0AQcBMpLeC0Benlb0LW74aH_ml780eqZ-nnUlQ',
   companionCardBg: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAQMf076gSvn0W1AEA8RH48QGPC-yxvTYibBKayOp9whm8shYk6bKGy5sFUf1r69SMJll6NAXmC--1e4U0JAnwdITJymOKlkYvShaJ7BSh3Zjrm-gNa50D5eFAdhH6IElOzX3PgezuQ0p3cvYj4y4GYcrCmyNy_ENINs6wcns8VO3o5WuqJ60hvnQs_2-Ob9n9o-QNb_qYN1tEPx3EuUTHImh3jDyfUOUnMQ61cTA-lX7_1KUJ9HyX4ZW5qAAurEop8bl0EG6tXVtI',

@@ -1,16 +1,42 @@
 export type Priority = 'low' | 'medium' | 'high';
 export type TaskStatus = 'pending' | 'progress' | 'completed';
+export type RepeatUnit = 'day' | 'week' | 'month' | 'year';
+export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
 export interface Task {
   id: string;
+
+  // Core task information
   title: string;
-  subject: string;
+  category?: string;          // Study, Work, Personal, Health, Shopping, etc.
+  subject?: string;          // Only used when category is "Study"
+
+  // Scheduling
   dueDate: string;
+  startDate?: string;
+  dueTime?: string;
+
+  // Status
   priority: Priority;
   status: TaskStatus;
+
+  // Details
   notes: string;
-  completedPercent?: number; // for tasks that have progress, e.g. 65% for Senior Thesis
+  tags?: string[];
+  location?: string;
+  reminder?: boolean;
+
+  // Progress
+  completedPercent?: number;
   nextMilestone?: string;
+
+  // Recurrence
+  repeat?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+  repeatInterval?: number;
+  repeatUnit?: 'day' | 'week' | 'month' | 'year';
+  repeatDays?: string[];
+  repeatEndDate?: string;
+  repeatCount?: number;
 }
 
 export interface CalendarEvent {

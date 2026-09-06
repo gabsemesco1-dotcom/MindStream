@@ -1,10 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-
-const systemInstruction =
-  "You are MindStream's AI Study Assistant, an elite academic tutor. " +
-  "Help the user study smarter, organize curricula, summarize papers, and generate exam prep questions. " +
-  "Always adopt an intellectually stimulating, clear, encouraging tone. " +
-  "Use Markdown bold and bullet points whenever appropriate.";
+import { MINDSTREAM_SYSTEM_INSTRUCTION, formatContextForPrompt } from "../../src/lib/aiPrompt";
+import { extractAction } from "../../src/lib/actionParser";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
@@ -26,13 +22,16 @@ export default async function handler(req: any, res: any) {
       apiKey,
     });
 
-    const { message, history } = req.body;
+    const { message, history, context } = req.body;
 
     if (!message) {
       return res.status(400).json({
         error: "Message is required.",
       });
     }
+
+    const contextSnippet = formatContextForPrompt(context);
+    const systemInstruction = MINDSTREAM_SYSTEM_INSTRUCTION + contextSnippet;
 
     const contents: any[] = [];
 
@@ -59,8 +58,12 @@ export default async function handler(req: any, res: any) {
       },
     });
 
+    const rawText = response.text || "";
+    const { cleanText, action } = extractAction(rawText);
+
     return res.status(200).json({
-      text: response.text,
+      text: cleanText,
+      action,
     });
 
   } catch (err: any) {

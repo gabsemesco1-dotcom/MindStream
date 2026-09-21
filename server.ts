@@ -159,9 +159,9 @@ async function startServer() {
       }
 
       const rawText = response.text || "";
-      const { cleanText, action } = extractAction(rawText);
+      const { cleanText, action, actions } = extractAction(rawText);
 
-      res.json({ text: cleanText, action });
+      res.json({ text: cleanText, action, actions });
     } catch (error: any) {
       console.error("AI API Error:", error);
       res.status(500).json({ error: "An unexpected error occurred. Please try again later." });

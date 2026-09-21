@@ -23,6 +23,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+export const getFallbackProfile = (currentUser: User): UserProfile => {
+  const fullName = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Gabriel Semesco';
+  const studentLevel = currentUser.user_metadata?.student_level || 'Undergraduate (Senior)';
+  const avatarUrl = currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(fullName || currentUser.email || '')}`;
+  return {
+    fullName,
+    email: currentUser.email || '',
+    studentLevel,
+    avatarUrl
+  };
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -30,6 +42,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Helper to fetch user profile
   const fetchProfile = async (currentUser: User) => {
+    const fallback = getFallbackProfile(currentUser);
+    // Guarantee fallback profile is immediately populated so UI is never blocked
+    setProfile(prev => prev || fallback);
+
     try {
       // First try to get the profile from the 'profiles' table
       const { data, error } = await supabase
@@ -40,28 +56,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (data) {
         setProfile({
-          fullName: data.full_name || currentUser.user_metadata?.full_name || 'Gabriel Semesco',
-          email: currentUser.email || '',
-          studentLevel: data.student_level || currentUser.user_metadata?.student_level || 'Undergraduate (Senior)',
-          avatarUrl: data.avatar_url || currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(data.full_name || currentUser.email || '')}`
+          fullName: data.full_name || fallback.fullName,
+          email: currentUser.email || fallback.email,
+          studentLevel: data.student_level || fallback.studentLevel,
+          avatarUrl: data.avatar_url || fallback.avatarUrl
         });
         return;
       }
 
-      // Profile record not found. Let's automatically create a profile record after first login (Requirement 4)
+      // Profile record not found. Automatically create a profile record after first login
       console.log('Profile record not found. Automatically creating profile record on first login...');
-      const fullName = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'User';
-      const studentLevel = currentUser.user_metadata?.student_level || 'Undergraduate (Senior)';
-      const avatarUrl = currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(fullName)}`;
-
       try {
         const { error: insertError } = await supabase
           .from('profiles')
           .insert({
             id: currentUser.id,
-            full_name: fullName,
-            student_level: studentLevel,
-            avatar_url: avatarUrl,
+            full_name: fallback.fullName,
+            student_level: fallback.studentLevel,
+            avatar_url: fallback.avatarUrl,
             updated_at: new Date().toISOString()
           });
 
@@ -72,34 +84,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('Profiles table inserting caught an error:', insertCatch);
       }
 
-      setProfile({
-        fullName,
-        email: currentUser.email || '',
-        studentLevel,
-        avatarUrl
-      });
+      setProfile(fallback);
     } catch (err) {
       console.error('Error fetching/creating profile:', err);
+      setProfile(prev => prev || fallback);
     }
   };
 
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       if (session?.user) {
         setUser(session.user);
+        setProfile(prev => prev || getFallbackProfile(session.user));
         fetchProfile(session.user);
       } else {
         setUser(null);
         setProfile(null);
       }
       setLoading(false);
+    }).catch((err) => {
+      console.error('Error retrieving session:', err);
+      if (mounted) setLoading(false);
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
       if (session?.user) {
         setUser(session.user);
+        setProfile(prev => prev || getFallbackProfile(session.user));
         await fetchProfile(session.user);
       } else {
         setUser(null);
@@ -129,8 +146,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 refresh_token: refreshToken
               });
               if (error) throw error;
-              if (data.user) {
+              if (data.user && mounted) {
                 setUser(data.user);
+                setProfile(prev => prev || getFallbackProfile(data.user!));
                 await fetchProfile(data.user);
               }
             }
@@ -140,8 +158,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (code) {
               const { data, error } = await supabase.auth.exchangeCodeForSession(code);
               if (error) throw error;
-              if (data.user) {
+              if (data.user && mounted) {
                 setUser(data.user);
+                setProfile(prev => prev || getFallbackProfile(data.user!));
                 await fetchProfile(data.user);
               }
             }
@@ -149,8 +168,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // Force fallback session check to be certain
           const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
+          if (session?.user && mounted) {
             setUser(session.user);
+            setProfile(prev => prev || getFallbackProfile(session.user));
             await fetchProfile(session.user);
           }
         } catch (err: any) {
@@ -162,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.addEventListener('message', handleMessage);
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
       window.removeEventListener('message', handleMessage);
     };

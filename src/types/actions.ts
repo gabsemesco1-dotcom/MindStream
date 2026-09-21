@@ -9,8 +9,12 @@ import { Priority } from '../types';
 export type AIActionType =
   | 'CREATE_TASK'
   | 'DELETE_TASK'
+  | 'UPDATE_TASK'
   | 'CREATE_EVENT'
-  | 'DELETE_EVENT';
+  | 'DELETE_EVENT'
+  | 'UPDATE_EVENT'
+  | 'DELETE_ALL_TASKS'
+  | 'DELETE_ALL_EVENTS';
 
 export interface CreateTaskParams {
   title: string;
@@ -28,6 +32,19 @@ export interface DeleteTaskParams {
   taskTitle: string;
 }
 
+export interface UpdateTaskParams {
+  taskId: string;       // required — exact existing task ID from context
+  taskTitle: string;   // required — exact existing task title from context
+  title?: string;      // new title
+  dueDate?: string;    // new due date in YYYY-MM-DD
+  dueTime?: string;    // new due time e.g. "03:00 PM"
+  priority?: Priority; // 'low' | 'medium' | 'high'
+  status?: string;     // 'pending' | 'progress' | 'completed'
+  category?: string;
+  notes?: string;
+  location?: string;
+}
+
 export interface CreateEventParams {
   title: string;
   date: string; // YYYY-MM-DD
@@ -43,14 +60,31 @@ export interface DeleteEventParams {
   eventTitle: string;
 }
 
+export interface UpdateEventParams {
+  eventId: string;
+  eventTitle: string;
+  title?: string;
+  date?: string;
+  time?: string;
+  duration?: number;
+  location?: string;
+  type?: 'exam' | 'study' | 'class' | 'submission';
+  subject?: string;
+}
+
+export interface DeleteAllTasksParams {}
+
+export interface DeleteAllEventsParams {}
+
 export interface AIAction {
   type: AIActionType;
-  params: any;
+  params: any; // typed per action: CreateTaskParams | UpdateTaskParams | DeleteTaskParams | CreateEventParams | UpdateEventParams | DeleteEventParams | DeleteAllTasksParams | DeleteAllEventsParams
 }
 
 export interface AIActionResponse {
   text: string;
   action?: AIAction | null;
+  actions?: AIAction[];
 }
 
 export interface TaskSummary {
@@ -61,6 +95,8 @@ export interface TaskSummary {
   priority: Priority;
   status: string;
   category?: string;
+  notes?: string;
+  location?: string;
 }
 
 export interface EventSummary {
@@ -83,7 +119,8 @@ export interface AIRequestContext {
 }
 
 export interface PendingConfirmation {
-  type: 'DELETE_TASK' | 'DELETE_EVENT';
-  targetId: string;
-  targetTitle: string;
+  type: 'DELETE_TASK' | 'DELETE_EVENT' | 'DELETE_ALL_TASKS' | 'DELETE_ALL_EVENTS' | 'DELETE_ALL_TASKS_AND_EVENTS';
+  targetId?: string;
+  targetTitle?: string;
+  actions?: AIAction[];
 }

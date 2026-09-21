@@ -5,41 +5,72 @@
 
 import { AIAction, AIActionType } from '../types/actions';
 
-export function extractAction(rawText: string): { cleanText: string; action: AIAction | null } {
+export function extractAction(rawText: string): { cleanText: string; action: AIAction | null; actions: AIAction[] } {
   if (!rawText) {
-    return { cleanText: '', action: null };
+    return { cleanText: '', action: null, actions: [] };
   }
 
-  // Regex matches ```json:mindstream-action { ... } ``` or ```json { "type"|"action": ... } ```
-  const actionBlockRegex = /```(?:json:mindstream-action|json)\s*\n?(\{[\s\S]*?"(?:action|type)"[\s\S]*?\})\s*\n?```/i;
-  const match = actionBlockRegex.exec(rawText);
+  const validTypes: AIActionType[] = [
+    'CREATE_TASK',
+    'DELETE_TASK',
+    'UPDATE_TASK',
+    'CREATE_EVENT',
+    'DELETE_EVENT',
+    'UPDATE_EVENT',
+    'DELETE_ALL_TASKS',
+    'DELETE_ALL_EVENTS',
+  ];
 
-  if (!match) {
-    return { cleanText: rawText.trim(), action: null };
-  }
+  const actions: AIAction[] = [];
+  let cleanText = rawText;
 
-  try {
-    const parsed = JSON.parse(match[1]);
-    const rawType = (parsed.type || parsed.action || '').toUpperCase() as AIActionType;
-    const validTypes: AIActionType[] = ['CREATE_TASK', 'DELETE_TASK', 'CREATE_EVENT', 'DELETE_EVENT'];
+  // Regex matches ```json:mindstream-action ... ``` or ```json ... ```
+  const actionBlockRegex = /```(?:json:mindstream-action|json)\s*\n?([\s\S]*?)\s*\n?```/gi;
+  let match: RegExpExecArray | null;
 
-    if (!validTypes.includes(rawType)) {
-      return { cleanText: rawText.trim(), action: null };
+  while ((match = actionBlockRegex.exec(rawText)) !== null) {
+    const fullBlock = match[0];
+    const blockContent = match[1].trim();
+
+    try {
+      const parsed = JSON.parse(blockContent);
+      let matchedAny = false;
+
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === 'object') {
+            const rawType = (item.type || item.action || '').toUpperCase() as AIActionType;
+            if (validTypes.includes(rawType)) {
+              actions.push({
+                type: rawType,
+                params: item.params || item.data || {},
+              });
+              matchedAny = true;
+            }
+          }
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        const rawType = (parsed.type || parsed.action || '').toUpperCase() as AIActionType;
+        if (validTypes.includes(rawType)) {
+          actions.push({
+            type: rawType,
+            params: parsed.params || parsed.data || {},
+          });
+          matchedAny = true;
+        }
+      }
+
+      if (matchedAny) {
+        cleanText = cleanText.replace(fullBlock, '');
+      }
+    } catch {
+      // Not valid JSON or not an action block, leave it intact in text
     }
-
-    const params = parsed.params || parsed.data || {};
-    // Strip the action block from the visible conversational text
-    const cleanText = rawText.replace(match[0], '').trim();
-
-    return {
-      cleanText,
-      action: {
-        type: rawType,
-        params,
-      },
-    };
-  } catch (err) {
-    console.warn('[ActionParser] Failed to parse action block JSON:', err);
-    return { cleanText: rawText.trim(), action: null };
   }
+
+  return {
+    cleanText: cleanText.trim(),
+    action: actions[0] || null,
+    actions,
+  };
 }

@@ -59,11 +59,12 @@ export default async function handler(req: any, res: any) {
     });
 
     const rawText = response.text || "";
-    const { cleanText, action } = extractAction(rawText);
+    const { cleanText, action, actions } = extractAction(rawText);
 
     return res.status(200).json({
       text: cleanText,
       action,
+      actions,
     });
 
   } catch (err: any) {

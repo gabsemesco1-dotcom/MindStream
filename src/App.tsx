@@ -53,10 +53,12 @@ import { supabase } from './lib/supabase';
 import {
   createConversation,
   saveMessage,
-  getConversationMessages
+  getConversationMessages,
+  generateTitleFromMessage,
+  updateConversationTitle
 } from "./lib/ai";
 import { ChatMessageRenderer } from './components/ChatMessageRenderer';
-import { AIRequestContext, PendingConfirmation, AIAction, CreateTaskParams, CreateEventParams, DeleteTaskParams, DeleteEventParams } from './types/actions';
+import { AIRequestContext, PendingConfirmation, AIAction, CreateTaskParams, CreateEventParams, DeleteTaskParams, DeleteEventParams, UpdateEventParams, UpdateTaskParams } from './types/actions';
 
 // Generate a secure, valid RFC4122 v4 UUID for database compatibility
 const generateUuid = () => {
@@ -109,8 +111,14 @@ export default function App() {
   // Sync Supabase Auth profile with application states
   useEffect(() => {
     if (!authLoading) {
-      if (user && authProfile) {
-        setCurrentUser(authProfile);
+      if (user) {
+        const fallbackProfile = {
+          fullName: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Gabriel Semesco',
+          email: user.email || '',
+          studentLevel: user.user_metadata?.student_level || 'Undergraduate (Senior)',
+          avatarUrl: user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(user.email || 'Gabriel Semesco')}`
+        };
+        setCurrentUser(authProfile || fallbackProfile);
         if (currentScreen === 'onboarding' || currentScreen === 'login' || currentScreen === 'register') {
           setCurrentScreen('preloader');
         }
@@ -124,7 +132,7 @@ export default function App() {
         }
       }
     }
-  }, [user, authProfile, authLoading]);
+  }, [user, authProfile, authLoading, currentScreen]);
 
   // Auth processing status for UI feedback (disabling buttons, spinner)
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -190,6 +198,8 @@ export default function App() {
   // Core mutable application state
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
+  const eventsRef = useRef<CalendarEvent[]>(events);
+  eventsRef.current = events;
 
   // Persistent conversations and chat sessions
   const [conversations, setConversations] = useState<ChatConversation[]>(() => {
@@ -222,6 +232,12 @@ export default function App() {
     const savedActive = localStorage.getItem('mindstream_active_conv_id');
     return savedActive || 'conv-default';
   });
+  // Authoritative ref to eliminate stale closures across async operations
+  const activeConversationIdRef = useRef<string>(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
+
+  // Monotonically increasing request ID for async conversation loading (stale-guard)
+  const conversationLoadReqRef = useRef<number>(0);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
     const savedActive = localStorage.getItem('mindstream_active_conv_id') || 'conv-default';
@@ -231,8 +247,7 @@ export default function App() {
         const parsed = JSON.parse(savedConvs);
         if (Array.isArray(parsed)) {
           const found = parsed.find((c: any) => c.id === savedActive);
-          if (found) return found.messages;
-          if (parsed.length > 0) return parsed[0].messages;
+          if (found && found.messages && found.messages.length > 0) return found.messages;
         }
       } catch (e) {
         console.error("Failed to load initial messages from active conversation:", e);
@@ -250,38 +265,15 @@ export default function App() {
   const [renameTitleInput, setRenameTitleInput] = useState<string>('');
   const [isMobileHistoryOpen, setIsMobileHistoryOpen] = useState(false);
 
-  // Effect to update the conversations and sync to localStorage whenever chatMessages changes
-  useEffect(() => {
-    if (activeConversationId) {
-      setConversations(prev => {
-        const updated = prev.map(c => {
-          if (c.id === activeConversationId) {
-            let title = c.title;
-            // Auto rename if it's currently a placeholder
-            if (title === t("newChat") || title === t("untitledConversation")) {
-              const firstUserMsg = chatMessages.find(m => m.role === 'user');
-              if (firstUserMsg) {
-                title = firstUserMsg.text.length > 25 ? firstUserMsg.text.substring(0, 22) + '...' : firstUserMsg.text;
-              }
-            }
-            return { ...c, title, messages: chatMessages };
-          }
-          return c;
-        });
-        localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
-        return updated;
-      });
-    }
-  }, [chatMessages, activeConversationId]);
-
-  // Effect to load correct chatMessages when activeConversationId changes
-  useEffect(() => {
-    const selectedConv = conversations.find(c => c.id === activeConversationId);
-    if (selectedConv) {
-      setChatMessages(selectedConv.messages);
-      localStorage.setItem('mindstream_active_conv_id', activeConversationId);
-    }
-  }, [activeConversationId]);
+  // Authoritative deduplicated conversations for sidebar and mobile drawer rendering
+  const displayConversations = useMemo(() => {
+    const seen = new Set<string>();
+    return conversations.filter(c => {
+      if (!c.id || seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [conversations]);
 
   // Form state for creating a new task
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -646,125 +638,192 @@ export default function App() {
     if (!silent) setIsRefreshing(true);
 
     try {
-      // 1. Fetch & Sync Tasks
-      const { data: dbTasks, error: tasksError } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('user_id', user.id);
+      // Parallelize independent initial data requests with Promise.allSettled
+      const [tasksResult, eventsResult, sessionsResult, convsResult] = await Promise.allSettled([
+        supabase.from('tasks').select('*').eq('user_id', user.id),
+        supabase.from('events').select('*').eq('user_id', user.id),
+        supabase.from('study_sessions').select('*').eq('user_id', user.id),
+        supabase.from('ai_conversations').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+      ]);
 
-      if (tasksError) {
-        console.error('Error fetching tasks from Supabase:', tasksError);
-      } else if (dbTasks) {
-        setTasks(dbTasks.map(dbToTask));
-      }
-
-      // 2. Fetch & Sync Events
-      const { data: dbEvents, error: eventsError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (eventsError) {
-        console.error('Error fetching events from Supabase:', eventsError);
-      } else if (dbEvents && dbEvents.length > 0) {
-        const mappedEvents = dbEvents.map(dbToEvent);
-
-        console.log("Mapped events:", mappedEvents);
-
-        mappedEvents.forEach(event => {
-          console.log(
-            event.title,
-            "date =", event.date,
-            "selectedDate =", selectedDate
-          );
-        });
-
-        setEvents(mappedEvents);
-
-      } else {
-        // No events found, seed with default events and save to Supabase
-        const seededEvents = INITIAL_EVENTS.map(e => ({
-          ...e,
-          id: generateUuid()
-        }));
-        setEvents(seededEvents);
-
-        const dbSeededEvents = seededEvents.map(e => eventToDb(e, user.id));
-        const { error: seedError } = await resilientInsert('events', dbSeededEvents);
-        if (seedError) {
-          console.error('Failed to seed events in Supabase:', seedError);
+      // 1. Process Tasks
+      if (tasksResult.status === 'fulfilled') {
+        const { data: dbTasks, error: tasksError } = tasksResult.value;
+        if (tasksError) {
+          console.error('Error fetching tasks from Supabase:', tasksError);
+        } else if (dbTasks) {
+          setTasks(dbTasks.map(dbToTask));
         }
-      }
-
-      // 3. Fetch & Sync Study Hours / Sessions
-      const { data: dbSessions, error: sessionsError } = await supabase
-        .from('study_sessions')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (sessionsError) {
-        console.error('Error fetching study sessions:', sessionsError);
-      } else if (dbSessions && dbSessions.length > 0) {
-        setStudySessions(dbSessions);
-        const totalHours = dbSessions.reduce((sum, s) => {
-          const h = s.study_hours || s.studyHours || Number((s.duration_seconds || s.durationSeconds || 0) / 3600);
-          return sum + Number(h);
-        }, 0);
-        setStudyHours(parseFloat(totalHours.toFixed(1)));
       } else {
-        setStudySessions([]);
-        setStudyHours(0);
+        console.error('Tasks request rejected:', tasksResult.reason);
       }
 
-      // 4. Fetch & Sync AI Conversations & Messages
-      const { data: dbConversations, error: convError } = await supabase
-        .from('ai_conversations')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (convError) {
-        console.error('Error fetching AI conversations:', convError);
-      } else if (dbConversations && dbConversations.length > 0) {
-        let currentActiveConvId = localStorage.getItem('mindstream_active_conv_id');
-        if (!currentActiveConvId || currentActiveConvId === 'conv-default') {
-          currentActiveConvId = dbConversations[0].id;
+      // 2. Process Events
+      if (eventsResult.status === 'fulfilled') {
+        const { data: dbEvents, error: eventsError } = eventsResult.value;
+        if (eventsError) {
+          console.error('Error fetching events from Supabase:', eventsError);
+        } else if (dbEvents && dbEvents.length > 0) {
+          const mappedEvents = dbEvents.map(dbToEvent);
+          setEvents(mappedEvents);
+          localStorage.setItem(`mindstream_events_seeded_${user.id}`, 'true');
         } else {
-          const exists = dbConversations.find(c => c.id === currentActiveConvId);
-          if (!exists) currentActiveConvId = dbConversations[0].id;
-        }
+          // No events found in DB: check if this user was already initialized previously
+          const hasSeeded = localStorage.getItem(`mindstream_events_seeded_${user.id}`);
+          if (!hasSeeded) {
+            localStorage.setItem(`mindstream_events_seeded_${user.id}`, 'true');
+            const seededEvents = INITIAL_EVENTS.map(e => ({
+              ...e,
+              id: generateUuid()
+            }));
+            setEvents(seededEvents);
 
-        if (!silent) {
-          try {
-            const messages = await getConversationMessages(currentActiveConvId);
-            const mappedMessages = (messages || []).map(dbToChatMessage);
-            
-            const hasWelcome = mappedMessages.some(m => m.text === 'SPECIAL_TOKEN_WELCOME');
-            if (!hasWelcome) {
-              mappedMessages.unshift({
+            const dbSeededEvents = seededEvents.map(e => eventToDb(e, user.id));
+            resilientInsert('events', dbSeededEvents).catch(err => {
+              console.error('Failed to seed events in Supabase:', err);
+            });
+          } else {
+            setEvents([]);
+          }
+        }
+      } else {
+        console.error('Events request rejected:', eventsResult.reason);
+      }
+
+      // 3. Process Study Sessions
+      if (sessionsResult.status === 'fulfilled') {
+        const { data: dbSessions, error: sessionsError } = sessionsResult.value;
+        if (sessionsError) {
+          console.error('Error fetching study sessions:', sessionsError);
+        } else if (dbSessions && dbSessions.length > 0) {
+          setStudySessions(dbSessions);
+          const totalHours = dbSessions.reduce((sum, s) => {
+            const h = s.study_hours || s.studyHours || Number((s.duration_seconds || s.durationSeconds || 0) / 3600);
+            return sum + Number(h);
+          }, 0);
+          setStudyHours(parseFloat(totalHours.toFixed(1)));
+        } else {
+          setStudySessions([]);
+          setStudyHours(0);
+        }
+      } else {
+        console.error('Study sessions request rejected:', sessionsResult.reason);
+      }
+
+      // 4. Process AI Conversations
+      if (convsResult.status === 'fulfilled') {
+        const { data: dbConversations, error: convError } = convsResult.value;
+        if (convError) {
+          console.error('Error fetching AI conversations:', convError);
+        } else if (dbConversations && dbConversations.length > 0) {
+          let currentActiveConvId = localStorage.getItem('mindstream_active_conv_id') || activeConversationIdRef.current;
+          if (!currentActiveConvId || currentActiveConvId === 'conv-default' || !dbConversations.some(c => c.id === currentActiveConvId)) {
+            currentActiveConvId = dbConversations[0].id;
+          }
+
+          if (!silent) {
+            const reqToken = ++conversationLoadReqRef.current;
+            try {
+              const messages = await getConversationMessages(currentActiveConvId);
+              if (conversationLoadReqRef.current !== reqToken || activeConversationIdRef.current !== currentActiveConvId) {
+                return;
+              }
+
+              const mappedMessages = (messages || []).map(dbToChatMessage);
+              const hasWelcome = mappedMessages.some(m => m.text === 'SPECIAL_TOKEN_WELCOME');
+              if (!hasWelcome) {
+                mappedMessages.unshift({
+                  id: 'msg-welcome-init',
+                  role: 'assistant',
+                  text: 'SPECIAL_TOKEN_WELCOME',
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                });
+              }
+
+              setConversations(prev => {
+                const prevMap = new Map(prev.map(c => [c.id, c]));
+                const mappedConvs: ChatConversation[] = dbConversations.map(dbConv => {
+                  const existing = prevMap.get(dbConv.id);
+                  return {
+                    id: dbConv.id,
+                    title: dbConv.title || 'New Conversation',
+                    createdAt: new Date(dbConv.created_at).toLocaleDateString(),
+                    messages: dbConv.id === currentActiveConvId ? mappedMessages : (existing?.messages || [])
+                  };
+                });
+                prev.forEach(c => {
+                  if ((c.id === 'conv-default' || c.id.startsWith('conv-') || c.id === activeConversationIdRef.current) && !mappedConvs.some(m => m.id === c.id)) {
+                    mappedConvs.push(c);
+                  }
+                });
+                const seen = new Set<string>();
+                const deduplicated = mappedConvs.filter(c => {
+                  if (seen.has(c.id)) return false;
+                  seen.add(c.id);
+                  return true;
+                });
+                localStorage.setItem('mindstream_conversations', JSON.stringify(deduplicated));
+                return deduplicated;
+              });
+
+              setActiveConversationId(currentActiveConvId);
+              activeConversationIdRef.current = currentActiveConvId;
+              localStorage.setItem('mindstream_active_conv_id', currentActiveConvId);
+              setChatMessages(mappedMessages);
+            } catch (msgErr) {
+              console.error('Error fetching AI messages:', msgErr);
+            }
+          } else {
+            setConversations(prev => {
+              const prevMap = new Map(prev.map(c => [c.id, c]));
+              const mappedConvs: ChatConversation[] = dbConversations.map(dbConv => {
+                const existing = prevMap.get(dbConv.id);
+                return {
+                  id: dbConv.id,
+                  title: dbConv.title || 'New Conversation',
+                  createdAt: new Date(dbConv.created_at).toLocaleDateString(),
+                  messages: existing?.messages || []
+                };
+              });
+              prev.forEach(c => {
+                if ((c.id === 'conv-default' || c.id.startsWith('conv-') || c.id === activeConversationIdRef.current) && !mappedConvs.some(m => m.id === c.id)) {
+                  mappedConvs.push(c);
+                }
+              });
+              const seen = new Set<string>();
+              const deduplicated = mappedConvs.filter(c => {
+                if (seen.has(c.id)) return false;
+                seen.add(c.id);
+                return true;
+              });
+              localStorage.setItem('mindstream_conversations', JSON.stringify(deduplicated));
+              return deduplicated;
+            });
+          }
+        } else if (!convError) {
+          if (!silent) {
+            const defaultConv: ChatConversation = {
+              id: 'conv-default',
+              title: t("defaultConversationTitle"),
+              messages: [{
                 id: 'msg-welcome-init',
                 role: 'assistant',
                 text: 'SPECIAL_TOKEN_WELCOME',
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              });
-            }
-            
-            const mappedConvs: ChatConversation[] = dbConversations.map(dbConv => ({
-              id: dbConv.id,
-              title: dbConv.title || 'New Conversation',
-              createdAt: new Date(dbConv.created_at).toLocaleDateString(),
-              messages: dbConv.id === currentActiveConvId ? mappedMessages : []
-            }));
-            
-            setConversations(mappedConvs);
-            setActiveConversationId(currentActiveConvId);
-            setChatMessages(mappedMessages);
-          } catch (msgErr) {
-            console.error('Error fetching AI messages:', msgErr);
+              }],
+              createdAt: new Date().toLocaleDateString()
+            };
+            setConversations([defaultConv]);
+            setActiveConversationId('conv-default');
+            activeConversationIdRef.current = 'conv-default';
+            localStorage.setItem('mindstream_active_conv_id', 'conv-default');
+            localStorage.setItem('mindstream_conversations', JSON.stringify([defaultConv]));
+            setChatMessages(defaultConv.messages);
           }
         }
+      } else {
+        console.error('AI conversations request rejected:', convsResult.reason);
       }
-
     } catch (err) {
       console.error('Unexpected error during Supabase sync:', err);
     } finally {
@@ -772,9 +831,13 @@ export default function App() {
     }
   }, [user]);
 
+  // Track last synced user ID to avoid redundant full sync on session token refresh
+  const lastSyncedUserIdRef = useRef<string | null>(null);
+
   // Initial sync on mount/login
   useEffect(() => {
-    if (user) {
+    if (user && user.id !== lastSyncedUserIdRef.current) {
+      lastSyncedUserIdRef.current = user.id;
       syncSupabaseData(false);
     }
   }, [user, syncSupabaseData]);
@@ -1009,8 +1072,26 @@ export default function App() {
       // Clear authentication session / tokens from localStorage and sessionStorage
       localStorage.removeItem('mindstream_currentUser');
       localStorage.removeItem('mindstream_auth_token');
+      localStorage.removeItem('mindstream_conversations');
+      localStorage.removeItem('mindstream_active_conv_id');
       sessionStorage.removeItem('mindstream_currentUser');
       sessionStorage.removeItem('mindstream_auth_token');
+
+      const defaultConv: ChatConversation = {
+        id: 'conv-default',
+        title: t("defaultConversationTitle"),
+        messages: [{
+          id: 'msg-welcome-init',
+          role: 'assistant',
+          text: 'SPECIAL_TOKEN_WELCOME',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }],
+        createdAt: new Date().toLocaleDateString()
+      };
+      setConversations([defaultConv]);
+      setActiveConversationId('conv-default');
+      activeConversationIdRef.current = 'conv-default';
+      setChatMessages(defaultConv.messages);
 
       // Close the profile menu
       setIsProfileMenuOpen(false);
@@ -1041,47 +1122,139 @@ export default function App() {
     setCurrentScreen('login');
   };
 
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+
   // Preloader progress bar self-acting transition
   useEffect(() => {
     if (currentScreen === 'preloader') {
       const timer = setTimeout(() => {
         setCurrentScreen('main');
-        showBannerNotification(t('goodMorningSynced', { name: currentUser?.fullName?.split(' ')[0] || 'Gabriel' }), "info");
+        showBannerNotification(t('goodMorningSynced', { name: currentUserRef.current?.fullName?.split(' ')[0] || 'Gabriel' }), "info");
       }, 3500);
       return () => clearTimeout(timer);
     }
-  }, [currentScreen, currentUser]);
+  }, [currentScreen]);
 
   // Protected Routes Enforcer: redirect to login if currentScreen is main but no user is logged in
   useEffect(() => {
-    if (currentScreen === 'main' && !currentUser) {
+    if (!authLoading && currentScreen === 'main' && !user) {
       setCurrentScreen('login');
     }
-  }, [currentScreen, currentUser]);
+  }, [currentScreen, user, authLoading]);
 
   // Helper methods to manage chat conversations and sessions
-  const handleNewChat = () => {
-    const newId = `conv-${Date.now()}`;
+  const handleSelectConversation = useCallback(async (convId: string) => {
+    if (!convId) return;
+
+    // 1. Authoritative active ID update
+    setActiveConversationId(convId);
+    activeConversationIdRef.current = convId;
+    localStorage.setItem('mindstream_active_conv_id', convId);
+
+    // 2. Increment request token to invalidate in-flight fetches for previous conversations (stale-guard)
+    const reqToken = ++conversationLoadReqRef.current;
+
+    // 3. Immediately display cached messages from memory if available
+    const existing = conversations.find(c => c.id === convId);
+    if (existing && existing.messages && existing.messages.length > 0) {
+      setChatMessages(existing.messages);
+    } else {
+      setChatMessages([{
+        id: 'msg-welcome-init',
+        role: 'assistant',
+        text: 'SPECIAL_TOKEN_WELCOME',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    }
+
+    // 4. If logged in and this is a persisted Supabase conversation, fetch authoritative messages
+    if (user && isValidUuid(convId)) {
+      try {
+        const messages = await getConversationMessages(convId);
+        // STALE GUARD: check if the user is still on this conversation and this request is the latest
+        if (conversationLoadReqRef.current !== reqToken || activeConversationIdRef.current !== convId) {
+          return;
+        }
+
+        const mappedMessages = (messages || []).map(dbToChatMessage);
+        if (!mappedMessages.some(m => m.text === 'SPECIAL_TOKEN_WELCOME')) {
+          mappedMessages.unshift({
+            id: 'msg-welcome-init',
+            role: 'assistant',
+            text: 'SPECIAL_TOKEN_WELCOME',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }
+
+        setChatMessages(mappedMessages);
+        setConversations(prev => {
+          const updated = prev.map(c => c.id === convId ? { ...c, messages: mappedMessages } : c);
+          localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+          return updated;
+        });
+      } catch (err) {
+        console.error('Failed to load messages for conversation:', convId, err);
+      }
+    }
+  }, [conversations, user]);
+
+  const handleNewChat = async () => {
+    // Check if current conversation is already an empty conversation with no user messages
+    const currentConv = conversations.find(c => c.id === activeConversationIdRef.current);
+    const hasUserMessages = chatMessages.some(m => m.role === 'user');
+    const isCurrentEmpty = !hasUserMessages && (!currentConv || currentConv.messages.every(m => m.role !== 'user'));
+
+    if (isCurrentEmpty && currentConv) {
+      // Already on a clean empty session: avoid duplicate empty database entries
+      showBannerNotification(t('startedNewStudySession'), "info");
+      return;
+    }
+
+    let newId = `conv-${Date.now()}`;
+    let title = t('newChat') || 'New Conversation';
+    let createdAt = new Date().toLocaleDateString();
+
+    if (user) {
+      try {
+        const dbConv = await createConversation(user.id, "New Conversation");
+        if (dbConv && dbConv.id) {
+          newId = dbConv.id;
+          title = dbConv.title || 'New Conversation';
+          createdAt = new Date(dbConv.created_at || Date.now()).toLocaleDateString();
+        }
+      } catch (err) {
+        console.error('Failed to create new conversation in Supabase:', err);
+      }
+    }
+
+    const welcomeMessage: ChatMessage = {
+      id: `msg-welcome-${Date.now()}`,
+      role: 'assistant',
+      text: 'SPECIAL_TOKEN_WELCOME',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
     const newConv: ChatConversation = {
       id: newId,
-      title: t('newChat'),
-      messages: [
-        {
-          id: `msg-welcome-${Date.now()}`,
-          role: 'assistant',
-          text: 'SPECIAL_TOKEN_WELCOME',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ],
-      createdAt: new Date().toLocaleDateString()
+      title,
+      messages: [welcomeMessage],
+      createdAt
     };
-    setConversations(prev => [newConv, ...prev]);
+
+    setConversations(prev => {
+      const updated = [newConv, ...prev.filter(c => c.id !== newId)];
+      localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+      return updated;
+    });
     setActiveConversationId(newId);
-    setChatMessages(newConv.messages);
+    activeConversationIdRef.current = newId;
+    localStorage.setItem('mindstream_active_conv_id', newId);
+    setChatMessages([welcomeMessage]);
     showBannerNotification(t('startedNewStudySession'), "success");
   };
 
-  const handleDeleteConversation = (id: string, e: React.MouseEvent) => {
+  const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (conversations.length <= 1) {
       showBannerNotification(t('mustKeepOneChat'), "info");
@@ -1090,10 +1263,16 @@ export default function App() {
     const updated = conversations.filter(c => c.id !== id);
     setConversations(updated);
     localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
-    if (activeConversationId === id) {
+    if (activeConversationIdRef.current === id) {
       const nextActive = updated[0].id;
-      setActiveConversationId(nextActive);
-      setChatMessages(updated[0].messages);
+      handleSelectConversation(nextActive);
+    }
+    if (user && isValidUuid(id)) {
+      try {
+        await supabase.from('ai_conversations').delete().eq('id', id).eq('user_id', user.id);
+      } catch (err) {
+        console.error('Failed to delete conversation from Supabase:', err);
+      }
     }
     showBannerNotification(t('chatSessionDeleted'), "info");
   };
@@ -1104,15 +1283,19 @@ export default function App() {
     setRenameTitleInput(currentTitle);
   };
 
-  const handleSaveRename = (id: string, e: React.FormEvent) => {
+  const handleSaveRename = async (id: string, e: React.FormEvent) => {
     e.preventDefault();
-    if (!renameTitleInput.trim()) return;
+    const newTitle = renameTitleInput.trim();
+    if (!newTitle) return;
     setConversations(prev => {
-      const updated = prev.map(c => c.id === id ? { ...c, title: renameTitleInput.trim() } : c);
+      const updated = prev.map(c => c.id === id ? { ...c, title: newTitle } : c);
       localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
       return updated;
     });
     setEditingConvId(null);
+    if (user && isValidUuid(id)) {
+      updateConversationTitle(id, newTitle);
+    }
     showBannerNotification(t('conversationRenamed'), "success");
   };
 
@@ -1131,7 +1314,7 @@ export default function App() {
       text = t('aiAssistantWelcome');
     }
 
-    if (!text) return null;const lines = text.split('\n');
+    if (!text) return null; const lines = text.split('\n');
     return lines.map((line, idx) => {
       // Check if line is a bullet point
       const isBullet = line.trim().startsWith('- ') || line.trim().startsWith('* ');
@@ -1191,12 +1374,21 @@ export default function App() {
 
   // Helper: add a system-style result message to chat
   const appendAiMessage = (text: string) => {
-    setChatMessages((prev) => [...prev, {
+    const currentActiveId = activeConversationIdRef.current;
+    const msg: ChatMessage = {
       id: `msg-ai-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       role: 'assistant',
       text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }]);
+    };
+    setChatMessages((prev) => [...prev, msg]);
+    setConversations((prev) => {
+      const updated = prev.map((c) =>
+        c.id === currentActiveId ? { ...c, messages: [...c.messages, msg] } : c
+      );
+      localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   // Create a task via AI action — reuses generateUuid, setTasks, taskToDb, resilientInsert
@@ -1271,6 +1463,117 @@ export default function App() {
     appendAiMessage(`✓ Calendar event created: **${newEvent.title}** — ${newEvent.date} at ${newEvent.time}.${persistMsg}`);
   };
 
+  // Execute an event update via AI action
+  const executeUpdateEvent = async (params: UpdateEventParams) => {
+    const rawId = params.eventId ? String(params.eventId).trim() : '';
+    const currentEvents = eventsRef.current || events;
+    const targetEvent = currentEvents.find(
+      (e) => e.id === rawId || e.id.toLowerCase() === rawId.toLowerCase()
+    );
+
+    if (!targetEvent) {
+      appendAiMessage(`⚠️ I couldn't find that calendar event right now. Please try again.`);
+      return;
+    }
+
+    const updatedEvent: CalendarEvent = {
+      ...targetEvent,
+      title: params.title ?? targetEvent.title,
+      date: params.date ?? targetEvent.date,
+      time: params.time ?? targetEvent.time,
+      duration: params.duration !== undefined ? Number(params.duration) : targetEvent.duration,
+      location: params.location ?? targetEvent.location,
+      type: (params.type as CalendarEvent['type']) ?? targetEvent.type,
+      subject: params.subject ?? targetEvent.subject
+    };
+
+    eventsRef.current = currentEvents.map((e) => (e.id === targetEvent.id ? updatedEvent : e));
+    setEvents((prev) => prev.map((e) => (e.id === targetEvent.id ? updatedEvent : e)));
+
+    let persistMsg = '';
+    if (user && isValidUuid(updatedEvent.id)) {
+      try {
+        const { error } = await resilientUpdate('events', updatedEvent.id, user.id, eventToDb(updatedEvent, user.id));
+        if (error) {
+          console.error('[AI Action] Event update error:', error);
+          persistMsg = ' *(saved locally; cloud sync failed)*';
+        }
+      } catch (err) {
+        console.error('[AI Action] Event update exception:', err);
+        persistMsg = ' *(saved locally; cloud sync failed)*';
+      }
+    }
+
+    appendAiMessage(`✓ Calendar event updated: **${updatedEvent.title}**${persistMsg}`);
+  };
+
+  // Execute a task update via AI action — mirrors executeUpdateEvent
+  const executeUpdateTask = async (params: UpdateTaskParams) => {
+    const rawId = params.taskId ? String(params.taskId).trim() : '';
+    const targetTask = tasks.find(
+      (t) => t.id === rawId || t.id.toLowerCase() === rawId.toLowerCase()
+    );
+
+    if (!targetTask) {
+      appendAiMessage(`⚠️ I couldn't find that task. Could you tell me which task you mean?`);
+      return;
+    }
+
+    // Validate status value if provided
+    const allowedStatuses: Task['status'][] = ['pending', 'progress', 'completed'];
+    const newStatus = params.status && allowedStatuses.includes(params.status as Task['status'])
+      ? (params.status as Task['status'])
+      : targetTask.status;
+
+    // Validate priority value if provided
+    const allowedPriorities: Priority[] = ['low', 'medium', 'high'];
+    const newPriority = params.priority && allowedPriorities.includes(params.priority as Priority)
+      ? (params.priority as Priority)
+      : targetTask.priority;
+
+    const updatedTask: Task = {
+      ...targetTask,
+      title: params.title !== undefined ? params.title : targetTask.title,
+      dueDate: params.dueDate !== undefined ? params.dueDate : targetTask.dueDate,
+      dueTime: params.dueTime !== undefined ? params.dueTime : targetTask.dueTime,
+      priority: newPriority,
+      status: newStatus,
+      category: params.category !== undefined ? params.category : targetTask.category,
+      notes: params.notes !== undefined ? params.notes : targetTask.notes,
+      location: params.location !== undefined ? params.location : targetTask.location,
+    };
+
+    setTasks((prev) => prev.map((t) => (t.id === targetTask.id ? updatedTask : t)));
+
+    // Build a human-readable summary of what changed
+    const changes: string[] = [];
+    if (params.title !== undefined) changes.push(`title changed to "${updatedTask.title}"`);
+    if (params.dueDate !== undefined) changes.push(`due date changed to ${updatedTask.dueDate}`);
+    if (params.dueTime !== undefined) changes.push(`due time changed to ${updatedTask.dueTime}`);
+    if (params.priority !== undefined) changes.push(`priority changed to ${updatedTask.priority}`);
+    if (params.status !== undefined) changes.push(`status changed to ${updatedTask.status}`);
+    if (params.category !== undefined) changes.push(`category changed to ${updatedTask.category}`);
+    if (params.notes !== undefined) changes.push(`notes updated`);
+    if (params.location !== undefined) changes.push(`location changed to ${updatedTask.location}`);
+    const changeSummary = changes.length > 0 ? ` — ${changes.join(', ')}` : '';
+
+    let persistMsg = '';
+    if (user && isValidUuid(updatedTask.id)) {
+      try {
+        const { error } = await resilientUpdate('tasks', updatedTask.id, user.id, taskToDb(updatedTask, user.id));
+        if (error) {
+          console.error('[AI Action] Task update error:', error);
+          persistMsg = ' *(saved locally; cloud sync failed)*';
+        }
+      } catch (err) {
+        console.error('[AI Action] Task update exception:', err);
+        persistMsg = ' *(saved locally; cloud sync failed)*';
+      }
+    }
+
+    appendAiMessage(`✓ Task updated: **${updatedTask.title}**${changeSummary}.${persistMsg}`);
+  };
+
   // Execute a confirmed task deletion — reuses the existing deleteTask function
   const executeDeleteTask = async (taskId: string, taskTitle: string) => {
     try {
@@ -1293,12 +1596,200 @@ export default function App() {
     }
   };
 
+  // Execute a confirmed bulk deletion of all tasks
+  const executeDeleteAllTasks = async (): Promise<boolean> => {
+    let dbSuccess = true;
+    let errorMessage = '';
+    let deletedCount = 0;
+
+    if (user) {
+      try {
+        const { data: deletedRows, error } = await supabase
+          .from('tasks')
+          .delete()
+          .eq('user_id', user.id)
+          .select('id');
+        if (error) {
+          dbSuccess = false;
+          errorMessage = error.message;
+          console.error('[AI Action] Failed to delete all tasks from Supabase:', error);
+        } else {
+          deletedCount = Array.isArray(deletedRows) ? deletedRows.length : tasks.length;
+        }
+      } catch (err: any) {
+        dbSuccess = false;
+        errorMessage = err?.message || 'Database error';
+        console.error('[AI Action] Task bulk delete exception:', err);
+      }
+    } else {
+      deletedCount = tasks.length;
+    }
+
+    if (!dbSuccess) {
+      appendAiMessage(`❌ Failed to delete tasks: ${errorMessage}. Your tasks were preserved.`);
+      return false;
+    }
+
+    // Update React state immediately upon successful database deletion
+    setTasks([]);
+    showBannerNotification(t('taskRemoved') || 'All tasks removed', "info");
+
+    if (deletedCount === 0) {
+      appendAiMessage("You had no tasks across any date. 0 records were found to delete.");
+    } else {
+      appendAiMessage(`✓ All tasks have been permanently deleted across every date (${deletedCount} ${deletedCount === 1 ? 'task' : 'tasks'} removed).`);
+    }
+    return true;
+  };
+
+  // Execute a confirmed bulk deletion of all calendar events
+  const executeDeleteAllEvents = async (): Promise<boolean> => {
+    let dbSuccess = true;
+    let errorMessage = '';
+    let deletedCount = 0;
+
+    if (user) {
+      try {
+        const { data: deletedRows, error } = await supabase
+          .from('events')
+          .delete()
+          .eq('user_id', user.id)
+          .select('id');
+        if (error) {
+          dbSuccess = false;
+          errorMessage = error.message;
+          console.error('[AI Action] Failed to delete all events from Supabase:', error);
+        } else {
+          deletedCount = Array.isArray(deletedRows) ? deletedRows.length : events.length;
+          // Mark that events have been initialized/managed for this user so refresh won't re-seed
+          localStorage.setItem(`mindstream_events_seeded_${user.id}`, 'true');
+        }
+      } catch (err: any) {
+        dbSuccess = false;
+        errorMessage = err?.message || 'Database error';
+        console.error('[AI Action] Event bulk delete exception:', err);
+      }
+    } else {
+      deletedCount = events.length;
+    }
+
+    if (!dbSuccess) {
+      appendAiMessage(`❌ Failed to delete calendar events: ${errorMessage}. Your calendar events were preserved.`);
+      return false;
+    }
+
+    // Update React state immediately upon successful database deletion
+    setEvents([]);
+    showBannerNotification(t('eventRemoved') || 'All events removed', "info");
+
+    if (deletedCount === 0) {
+      appendAiMessage("You had no calendar events across any date. 0 records were found to delete.");
+    } else {
+      appendAiMessage(`✓ All calendar events have been permanently deleted across every date (${deletedCount} ${deletedCount === 1 ? 'event' : 'events'} removed).`);
+    }
+    return true;
+  };
+
+  // Execute confirmed combined bulk deletion of tasks AND calendar events
+  const executeDeleteAllTasksAndEvents = async () => {
+    let tasksSuccess = true;
+    let eventsSuccess = true;
+    let tasksErrMsg = '';
+    let eventsErrMsg = '';
+    let tasksDeletedCount = 0;
+    let eventsDeletedCount = 0;
+
+    if (user) {
+      // 1. Delete tasks scoped to user
+      try {
+        const { data: deletedTasks, error: taskErr } = await supabase
+          .from('tasks')
+          .delete()
+          .eq('user_id', user.id)
+          .select('id');
+        if (taskErr) {
+          tasksSuccess = false;
+          tasksErrMsg = taskErr.message;
+          console.error('[AI Action] Bulk tasks delete error:', taskErr);
+        } else {
+          tasksDeletedCount = Array.isArray(deletedTasks) ? deletedTasks.length : tasks.length;
+        }
+      } catch (err: any) {
+        tasksSuccess = false;
+        tasksErrMsg = err?.message || 'Database error';
+        console.error('[AI Action] Bulk tasks delete exception:', err);
+      }
+
+      // 2. Delete events scoped to user
+      try {
+        const { data: deletedEvents, error: eventErr } = await supabase
+          .from('events')
+          .delete()
+          .eq('user_id', user.id)
+          .select('id');
+        if (eventErr) {
+          eventsSuccess = false;
+          eventsErrMsg = eventErr.message;
+          console.error('[AI Action] Bulk events delete error:', eventErr);
+        } else {
+          eventsDeletedCount = Array.isArray(deletedEvents) ? deletedEvents.length : events.length;
+          localStorage.setItem(`mindstream_events_seeded_${user.id}`, 'true');
+        }
+      } catch (err: any) {
+        eventsSuccess = false;
+        eventsErrMsg = err?.message || 'Database error';
+        console.error('[AI Action] Bulk events delete exception:', err);
+      }
+    } else {
+      tasksDeletedCount = tasks.length;
+      eventsDeletedCount = events.length;
+    }
+
+    // Update React state only for successful operations
+    if (tasksSuccess) {
+      setTasks([]);
+    }
+    if (eventsSuccess) {
+      setEvents([]);
+    }
+
+    if (tasksSuccess && eventsSuccess) {
+      showBannerNotification(t('taskRemoved') || 'Tasks and events removed', "info");
+      if (tasksDeletedCount === 0 && eventsDeletedCount === 0) {
+        appendAiMessage("You had no tasks or calendar events across any date. 0 records were found to delete.");
+      } else if (tasksDeletedCount > 0 && eventsDeletedCount === 0) {
+        appendAiMessage(`✓ All tasks have been permanently deleted across every date (${tasksDeletedCount} ${tasksDeletedCount === 1 ? 'task' : 'tasks'} removed). No calendar events were found to delete.`);
+      } else if (tasksDeletedCount === 0 && eventsDeletedCount > 0) {
+        appendAiMessage(`✓ All calendar events have been permanently deleted across every date (${eventsDeletedCount} ${eventsDeletedCount === 1 ? 'event' : 'events'} removed). No tasks were found to delete.`);
+      } else {
+        appendAiMessage(`✓ All tasks (${tasksDeletedCount}) and calendar events (${eventsDeletedCount}) have been permanently deleted across every date.`);
+      }
+    } else if (tasksSuccess && !eventsSuccess) {
+      showBannerNotification(t('taskRemoved') || 'Tasks removed', "info");
+      const taskPart = tasksDeletedCount === 0
+        ? "0 tasks were found to delete."
+        : `All tasks were permanently deleted (${tasksDeletedCount} removed).`;
+      appendAiMessage(`✓ ${taskPart} ❌ However, calendar events could not be deleted (${eventsErrMsg}). Your calendar events were preserved.`);
+    } else if (!tasksSuccess && eventsSuccess) {
+      showBannerNotification(t('eventRemoved') || 'Events removed', "info");
+      const eventPart = eventsDeletedCount === 0
+        ? "0 calendar events were found to delete."
+        : `All calendar events were permanently deleted (${eventsDeletedCount} removed).`;
+      appendAiMessage(`✓ ${eventPart} ❌ However, tasks could not be deleted (${tasksErrMsg}). Your tasks were preserved.`);
+    } else {
+      appendAiMessage(`❌ Failed to delete tasks (${tasksErrMsg}) and calendar events (${eventsErrMsg}). Your data was preserved.`);
+    }
+  };
+
   // ─── Main Chat Message Handler ────────────────────────────────────────────────
 
   // Post User chat prompts server-side to Gemini
   const handleSendChatMessage = async (presetText?: string) => {
     const textToSend = presetText || chatInput;
     if (!textToSend.trim()) return;
+
+    // ── Authoritative Conversation Identity Captured Immediately ─────────────
+    const sendConversationId = activeConversationIdRef.current;
 
     const userMsgId = `msg-user-${Date.now()}`;
     const now = new Date();
@@ -1311,6 +1802,7 @@ export default function App() {
       timestamp: timeStr
     };
 
+    // Single optimistic UI append
     setChatMessages((prev) => [...prev, newUserMessage]);
     setChatInput('');
 
@@ -1318,23 +1810,37 @@ export default function App() {
     // If a destructive action is waiting for confirmation, resolve it before
     // sending anything to Gemini.
     if (pendingConfirmation) {
-      const lc = textToSend.toLowerCase().trim();
-      const isConfirm = ['yes', 'y', 'confirm', 'delete it', 'sure', 'proceed', 'ok', 'go ahead', 'do it'].some(w => lc === w || lc.startsWith(w + ' '));
-      const isCancel = ['no', 'n', 'cancel', 'stop', 'keep it', 'never mind', 'nevermind', 'abort'].some(w => lc === w || lc.startsWith(w + ' '));
+      const cleanInput = textToSend.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+      const isConfirm = ['yes', 'y', 'confirm', 'delete it', 'sure', 'proceed', 'ok', 'go ahead', 'do it'].some(w => cleanInput === w || cleanInput.startsWith(w + ' '));
+      const isCancel = ['no', 'n', 'cancel', 'stop', 'keep it', 'never mind', 'nevermind', 'abort', "don't", 'dont', "don't delete", "dont delete", "do not delete"].some(w => cleanInput === w || cleanInput.startsWith(w + ' '));
 
       if (isConfirm) {
         const { type, targetId, targetTitle } = pendingConfirmation;
         setPendingConfirmation(null);
-        if (type === 'DELETE_TASK') {
+        if (type === 'DELETE_TASK' && targetId && targetTitle) {
           await executeDeleteTask(targetId, targetTitle);
-        } else if (type === 'DELETE_EVENT') {
+        } else if (type === 'DELETE_EVENT' && targetId && targetTitle) {
           await executeDeleteEvent(targetId, targetTitle);
+        } else if (type === 'DELETE_ALL_TASKS') {
+          await executeDeleteAllTasks();
+        } else if (type === 'DELETE_ALL_EVENTS') {
+          await executeDeleteAllEvents();
+        } else if (type === 'DELETE_ALL_TASKS_AND_EVENTS') {
+          await executeDeleteAllTasksAndEvents();
         }
         return; // Handled locally — no Gemini call needed
       } else if (isCancel) {
-        const { targetTitle } = pendingConfirmation;
+        const { type, targetTitle } = pendingConfirmation;
         setPendingConfirmation(null);
-        appendAiMessage(`Deletion cancelled. **${targetTitle}** was kept.`);
+        if (type === 'DELETE_ALL_TASKS') {
+          appendAiMessage("Deletion cancelled. All tasks were kept.");
+        } else if (type === 'DELETE_ALL_EVENTS') {
+          appendAiMessage("Deletion cancelled. All calendar events were kept.");
+        } else if (type === 'DELETE_ALL_TASKS_AND_EVENTS') {
+          appendAiMessage("Deletion cancelled. Nothing was deleted.");
+        } else {
+          appendAiMessage(`Deletion cancelled. **${targetTitle || 'Item'}** was kept.`);
+        }
         return; // Handled locally — no Gemini call needed
       } else {
         // User said something ambiguous — clear pending action and let Gemini respond
@@ -1344,15 +1850,85 @@ export default function App() {
 
     setIsAiTyping(true);
 
-    // ── Persist to Supabase conversation ──────────────────────────────────────
-    let conversationId = activeConversationId;
-    if (user && (conversationId === 'conv-default' || conversationId.startsWith('conv-'))) {
-      const conversation = await createConversation(user.id);
-      conversationId = conversation.id;
-      setActiveConversationId(conversation.id);
+    // ── Target Conversation Resolution & Persistence ─────────────────────────
+    let persistedConvId = sendConversationId;
+    const isUnpersistedLocal = !sendConversationId || sendConversationId === 'conv-default' || sendConversationId.startsWith('conv-');
+
+    if (user && isUnpersistedLocal) {
+      // First message in an unpersisted session: create exactly ONE database row with generated title
+      const autoTitle = generateTitleFromMessage(textToSend);
+      try {
+        const dbConv = await createConversation(user.id, autoTitle);
+        if (dbConv && dbConv.id) {
+          persistedConvId = dbConv.id;
+          if (activeConversationIdRef.current === sendConversationId) {
+            setActiveConversationId(persistedConvId);
+            activeConversationIdRef.current = persistedConvId;
+            localStorage.setItem('mindstream_active_conv_id', persistedConvId);
+          }
+
+          setConversations(prev => {
+            // Precise replacement: only replace this exact session, never blanket match
+            const updated = prev.map(c =>
+              c.id === sendConversationId
+                ? { ...c, id: persistedConvId, title: autoTitle, messages: [...c.messages, newUserMessage] }
+                : c
+            );
+            localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+            return updated;
+          });
+        }
+      } catch (convErr) {
+        console.error('Failed to create conversation in Supabase:', convErr);
+      }
+    } else if (user && isValidUuid(sendConversationId)) {
+      persistedConvId = sendConversationId;
+      const currentConv = conversations.find(c => c.id === sendConversationId);
+      const isPlaceholder =
+        !currentConv ||
+        currentConv.title === 'New Conversation' ||
+        currentConv.title === t('newChat') ||
+        currentConv.title === t('defaultConversationTitle') ||
+        currentConv.title === t('untitledConversation');
+
+      if (isPlaceholder) {
+        const autoTitle = generateTitleFromMessage(textToSend);
+        updateConversationTitle(persistedConvId, autoTitle);
+        setConversations(prev => {
+          const updated = prev.map(c =>
+            c.id === persistedConvId
+              ? { ...c, title: autoTitle, messages: [...c.messages, newUserMessage] }
+              : c
+          );
+          localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+          return updated;
+        });
+      } else {
+        setConversations(prev => {
+          const updated = prev.map(c =>
+            c.id === persistedConvId ? { ...c, messages: [...c.messages, newUserMessage] } : c
+          );
+          localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    } else {
+      // Guest or local mode
+      setConversations(prev => {
+        const updated = prev.map(c =>
+          c.id === sendConversationId ? { ...c, messages: [...c.messages, newUserMessage] } : c
+        );
+        localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+        return updated;
+      });
     }
-    if (user) {
-      await saveMessage(conversationId, 'user', textToSend);
+
+    if (user && isValidUuid(persistedConvId)) {
+      try {
+        await saveMessage(persistedConvId, 'user', textToSend);
+      } catch (saveErr) {
+        console.error('Failed to save user message to Supabase:', saveErr);
+      }
     }
 
     try {
@@ -1372,9 +1948,11 @@ export default function App() {
             dueTime: t.dueTime,
             priority: t.priority,
             status: t.status,
-            category: t.category
+            category: t.category,
+            notes: t.notes ? t.notes.slice(0, 120) : undefined,
+            location: t.location
           })),
-        events: events
+        events: (eventsRef.current || events)
           .slice(0, 50)
           .map(e => ({
             id: e.id,
@@ -1388,9 +1966,14 @@ export default function App() {
           }))
       };
 
-      // Package conversation history (exclude welcome token messages)
-      const chatHistory = chatMessages
-        .filter(m => m.text !== 'SPECIAL_TOKEN_WELCOME')
+      // Package conversation history specific to this conversation (exclude welcome tokens and current message)
+      const targetConv = conversations.find(c => c.id === sendConversationId || c.id === persistedConvId);
+      const historySource = targetConv?.messages && targetConv.messages.length > 0
+        ? targetConv.messages
+        : chatMessages;
+
+      const chatHistory = historySource
+        .filter(m => m.text !== 'SPECIAL_TOKEN_WELCOME' && m.id !== userMsgId)
         .map(m => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           text: m.text
@@ -1409,63 +1992,133 @@ export default function App() {
       const data = await response.json();
       const aiResponseText = data.text || 'I was able to analyze that. How else can I help you?';
       const action: AIAction | null = data.action || null;
+      const actions: AIAction[] = Array.isArray(data.actions) && data.actions.length > 0
+        ? data.actions
+        : (action ? [action] : []);
 
-      // Append AI conversational reply to chat
+      // Append AI conversational reply to chat if user is still viewing this conversation
       const aiMsgId = `msg-ai-${Date.now()}`;
-      setChatMessages((prev) => [...prev, {
+      const newAiMessage: ChatMessage = {
         id: aiMsgId,
         role: 'assistant',
         text: aiResponseText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
+      };
 
-      if (user) {
-        await saveMessage(conversationId, 'assistant', aiResponseText);
+      if (activeConversationIdRef.current === persistedConvId || activeConversationIdRef.current === sendConversationId) {
+        setChatMessages((prev) => [...prev, newAiMessage]);
       }
 
-      // ── Execute or stage the action ────────────────────────────────────────
-      if (action) {
-        if (action.type === 'CREATE_TASK') {
-          const p = action.params as CreateTaskParams;
-          if (p?.title) {
-            await executeCreateTask(p);
-          }
-        } else if (action.type === 'CREATE_EVENT') {
-          const p = action.params as CreateEventParams;
-          if (p?.title && p?.date) {
-            await executeCreateEvent(p);
-          }
-        } else if (action.type === 'DELETE_TASK') {
-          // Stage for confirmation — do NOT delete yet
-          const p = action.params as DeleteTaskParams;
-          if (p?.taskId && p?.taskTitle) {
-            setPendingConfirmation({
-              type: 'DELETE_TASK',
-              targetId: p.taskId,
-              targetTitle: p.taskTitle
-            });
-          }
-        } else if (action.type === 'DELETE_EVENT') {
-          // Stage for confirmation — do NOT delete yet
-          const p = action.params as DeleteEventParams;
-          if (p?.eventId && p?.eventTitle) {
-            setPendingConfirmation({
-              type: 'DELETE_EVENT',
-              targetId: p.eventId,
-              targetTitle: p.eventTitle
-            });
+      // Always update the target conversation's cached messages in state and localStorage
+      setConversations((prev) => {
+        const updated = prev.map((c) =>
+          (c.id === persistedConvId || c.id === sendConversationId)
+            ? { ...c, messages: [...c.messages, newAiMessage] }
+            : c
+        );
+        localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+        return updated;
+      });
+
+      if (user && isValidUuid(persistedConvId)) {
+        try {
+          await saveMessage(persistedConvId, 'assistant', aiResponseText);
+        } catch (saveErr) {
+          console.error('Failed to save assistant message to Supabase:', saveErr);
+        }
+      }
+
+      // ── Execute or stage the action(s) ─────────────────────────────────────
+      const hasDeleteAllTasks = actions.some(a => a.type === 'DELETE_ALL_TASKS');
+      const hasDeleteAllEvents = actions.some(a => a.type === 'DELETE_ALL_EVENTS');
+
+      if (hasDeleteAllTasks && hasDeleteAllEvents) {
+        setPendingConfirmation({
+          type: 'DELETE_ALL_TASKS_AND_EVENTS',
+          targetTitle: 'all tasks and calendar events',
+          actions
+        });
+      } else if (hasDeleteAllTasks) {
+        setPendingConfirmation({
+          type: 'DELETE_ALL_TASKS',
+          targetTitle: 'all tasks',
+          actions
+        });
+      } else if (hasDeleteAllEvents) {
+        setPendingConfirmation({
+          type: 'DELETE_ALL_EVENTS',
+          targetTitle: 'all calendar events',
+          actions
+        });
+      } else if (actions.length > 0) {
+        for (const act of actions) {
+          if (act.type === 'CREATE_TASK') {
+            const p = act.params as CreateTaskParams;
+            if (p?.title) {
+              await executeCreateTask(p);
+            }
+          } else if (act.type === 'CREATE_EVENT') {
+            const p = act.params as CreateEventParams;
+            if (p?.title && p?.date) {
+              await executeCreateEvent(p);
+            }
+          } else if (act.type === 'DELETE_TASK') {
+            // Stage for confirmation — do NOT delete yet
+            const p = act.params as DeleteTaskParams;
+            if (p?.taskId && p?.taskTitle) {
+              setPendingConfirmation({
+                type: 'DELETE_TASK',
+                targetId: p.taskId,
+                targetTitle: p.taskTitle
+              });
+            }
+          } else if (act.type === 'DELETE_EVENT') {
+            // Stage for confirmation — do NOT delete yet
+            const p = act.params as DeleteEventParams;
+            if (p?.eventId && p?.eventTitle) {
+              setPendingConfirmation({
+                type: 'DELETE_EVENT',
+                targetId: p.eventId,
+                targetTitle: p.eventTitle
+              });
+            }
+          } else if (act.type === 'UPDATE_EVENT') {
+            const p = act.params as UpdateEventParams;
+            if (p?.eventId) {
+              await executeUpdateEvent(p);
+            }
+          } else if (act.type === 'UPDATE_TASK') {
+            // Non-destructive — execute directly without staging for confirmation
+            const p = act.params as UpdateTaskParams;
+            if (p?.taskId) {
+              await executeUpdateTask(p);
+            } else {
+              appendAiMessage(`⚠️ I couldn't find that task. Could you tell me which task you mean?`);
+            }
           }
         }
       }
 
     } catch (err: any) {
       console.error(err);
-      setChatMessages((prev) => [...prev, {
+      const errMsg: ChatMessage = {
         id: `msg-err-${Date.now()}`,
         role: 'assistant',
         text: t('networkIssueGemini'),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
+      };
+      if (activeConversationIdRef.current === persistedConvId || activeConversationIdRef.current === sendConversationId) {
+        setChatMessages((prev) => [...prev, errMsg]);
+      }
+      setConversations((prev) => {
+        const updated = prev.map((c) =>
+          (c.id === persistedConvId || c.id === sendConversationId)
+            ? { ...c, messages: [...c.messages, errMsg] }
+            : c
+        );
+        localStorage.setItem('mindstream_conversations', JSON.stringify(updated));
+        return updated;
+      });
     } finally {
       setIsAiTyping(false);
     }
@@ -1862,6 +2515,7 @@ export default function App() {
         subject: eventSubject.trim()
       };
 
+      eventsRef.current = [...eventsRef.current, newEvent];
       setEvents((prev) => [...prev, newEvent]);
       setIsAddingEvent(false);
 
@@ -2074,7 +2728,7 @@ export default function App() {
 
           <div className="flex justify-between items-center max-w-md w-full mx-auto relative z-10">
             <div className="flex items-center gap-2">
-              <BookOpen className="text-brand w-6 h-6" />
+              <img src="/images/mindstream-emblem.png" alt="MindStream" className="w-6 h-6 object-contain" />
               <span className="font-bold text-lg tracking-tight text-brand">{t('appName')}</span>
             </div>
             <button
@@ -2252,7 +2906,7 @@ export default function App() {
             {/* Header / Logo */}
             <div className="text-center space-y-2">
               <div className="inline-flex w-12 h-12 items-center justify-center bg-brand-light rounded-2xl border border-main-border text-brand shadow-sm mb-2">
-                <BookOpen className="w-6 h-6" />
+                <img src="/images/mindstream-emblem.png" alt="MindStream" className="w-6 h-6 object-contain" />
               </div>
               <h2 className="text-3xl font-extrabold text-main-text tracking-tight">{t('welcomeToMindstream')}</h2>
               <p className="text-sm text-muted-text">{t('pleaseSignIn')}</p>
@@ -2405,7 +3059,7 @@ export default function App() {
             {/* Header */}
             <div className="text-center space-y-2">
               <div className="inline-flex w-12 h-12 items-center justify-center bg-brand-light rounded-2xl border border-main-border text-brand shadow-sm mb-2">
-                <BookOpen className="w-6 h-6" />
+                <img src="/images/mindstream-emblem.png" alt="MindStream" className="w-6 h-6 object-contain" />
               </div>
               <h2 className="text-3xl font-extrabold text-main-text tracking-tight">{t('createAccount')}</h2>
               <p className="text-sm text-muted-text">{t('joinMindstream')}</p>
@@ -2575,7 +3229,7 @@ export default function App() {
             <div className="relative inline-block mx-auto">
               <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full scale-150 animate-pulse" />
               <div className="relative w-24 h-24 flex items-center justify-center bg-card-bg rounded-3xl shadow-xl border border-main-border">
-                <BookOpen className="text-brand w-12 h-12" />
+                <img src="/images/mindstream-emblem.png" alt="MindStream" className="w-12 h-12 object-contain" />
               </div>
             </div>
 
@@ -3929,14 +4583,14 @@ export default function App() {
                         </h3>
 
                         <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar">
-                          {conversations.map((c) => {
+                          {displayConversations.map((c) => {
                             const isActive = c.id === activeConversationId;
                             const isEditing = c.id === editingConvId;
 
                             return (
                               <div
                                 key={c.id}
-                                onClick={() => !isEditing && setActiveConversationId(c.id)}
+                                onClick={() => !isEditing && handleSelectConversation(c.id)}
                                 className={`group flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold cursor-pointer border transition-all duration-200 ${isActive
                                   ? 'bg-brand-light text-brand border-brand/20 dark:border-brand/20'
                                   : 'hover:bg-brand-light text-secondary-text border-transparent'
@@ -4036,7 +4690,7 @@ export default function App() {
                             </button>
 
                             <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar mb-6">
-                              {conversations.map((c) => {
+                              {displayConversations.map((c) => {
                                 const isActive = c.id === activeConversationId;
                                 const isEditing = c.id === editingConvId;
                                 return (
@@ -4044,7 +4698,7 @@ export default function App() {
                                     key={c.id}
                                     onClick={() => {
                                       if (!isEditing) {
-                                        setActiveConversationId(c.id);
+                                        handleSelectConversation(c.id);
                                         setIsMobileHistoryOpen(false);
                                       }
                                     }}
@@ -4354,9 +5008,8 @@ export default function App() {
                               ].map((lang) => (
                                 <button
                                   key={lang.code}
-                                  className={`w-full text-left px-4 py-2.5 text-main-text hover:bg-brand-light transition-colors flex items-center justify-between ${
-                                    i18n.language === lang.code ? 'font-bold text-brand bg-brand-light/50' : ''
-                                  }`}
+                                  className={`w-full text-left px-4 py-2.5 text-main-text hover:bg-brand-light transition-colors flex items-center justify-between ${i18n.language === lang.code ? 'font-bold text-brand bg-brand-light/50' : ''
+                                    }`}
                                   onClick={() => {
                                     i18n.changeLanguage(lang.code);
                                     setLanguageMenuOpen(false);
@@ -4392,11 +5045,10 @@ export default function App() {
                                   key={item.mode}
                                   type="button"
                                   onClick={() => setThemeMode(item.mode)}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                                    active
-                                      ? 'bg-brand text-white shadow-xs'
-                                      : 'text-secondary-text hover:text-brand hover:bg-brand-light'
-                                  }`}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${active
+                                    ? 'bg-brand text-white shadow-xs'
+                                    : 'text-secondary-text hover:text-brand hover:bg-brand-light'
+                                    }`}
                                 >
                                   <Icon className="w-3.5 h-3.5" />
                                   <span className="capitalize">{item.label}</span>

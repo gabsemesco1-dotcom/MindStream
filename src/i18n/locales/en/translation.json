@@ -19,6 +19,7 @@
   "accountCreatedSuccess": "Account created successfully! Check your email to verify or sign in.",
   "registrationFailed": "Registration failed.",
   "enterEmailFirst": "Please enter your email address first.",
+  "popupBlocked": "Popup blocked. Please allow popups for this site to sign in with Google.",
   "resetLinkSent": "A password reset link has been sent to {{email}}.",
   "failedSendReset": "Failed to send reset email.",
   "loggedOutSuccess": "You have successfully logged out.",

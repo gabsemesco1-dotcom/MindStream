@@ -984,18 +984,17 @@ export default function App() {
     // 1. Open the popup immediately to bypass browser popup blocker on user gesture
     const popup = window.open('', 'google_oauth_popup', 'width=550,height=680,scrollbars=yes,status=yes');
     if (!popup) {
-      showBannerNotification(t('enterEmailFirst'), "info");
+      showBannerNotification(t('popupBlocked'), "info");
       setIsAuthSubmitting(false);
       return;
     }
     popup.document.write(`<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; text-align:center; padding-top:100px; color:#0A192F;"><p style="font-size:16px; font-weight:600;">${t('connectingWithGoogle')}</p><p style="font-size:12px; color:#777587;">${t('completingSecureHandshake')}</p></div>`);
 
     try {
-      const data = await supabaseSignInWithGoogle();
+      const data = await supabaseSignInWithGoogle(popup);
       if (data?.url) {
         // 2. Redirect the popup to Google auth endpoint
         popup.location.href = data.url;
-        showBannerNotification(t('accountCreatedSuccess'), "success");
       } else {
         popup.close();
         throw new Error("Could not retrieve Google sign-in URL from Supabase.");

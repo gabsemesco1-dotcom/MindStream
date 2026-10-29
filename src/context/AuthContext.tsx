@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 
@@ -15,7 +15,7 @@ interface AuthContextType {
   loading: boolean;
   signUp: (email: string, password: string, fullName: string, studentLevel: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
-  signInWithGoogle: () => Promise<any>;
+  signInWithGoogle: (popup?: Window | null) => Promise<any>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<any>;
   updateProfile: (updated: Partial<UserProfile>) => Promise<any>;
@@ -39,6 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const oauthPopupRef = useRef<Window | null>(null);
 
   // Helper to fetch user profile
   const fetchProfile = async (currentUser: User) => {
@@ -125,16 +126,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    // Handle OAUTH_AUTH_SUCCESS from popup Window in iframed context
+    // Handle OAUTH_AUTH_SUCCESS from popup Window in iframed or popup context
     const handleMessage = async (event: MessageEvent) => {
-      const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+      // 1. Strict same-origin check
+      if (event.origin !== window.location.origin) {
         return;
       }
+
+      // 2. Verify that message comes from the expected OAuth popup window where compatible
+      if (oauthPopupRef.current && event.source !== oauthPopupRef.current) {
+        return;
+      }
+      if (!event.source || event.source === window) {
+        return;
+      }
+
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        console.log('Received OAUTH_AUTH_SUCCESS from popup!');
+        oauthPopupRef.current = null;
         const { hash, search } = event.data;
-        
+
         try {
           if (hash) {
             const params = new URLSearchParams(hash.replace(/^#/, ''));
@@ -165,7 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             }
           }
-          
+
           // Force fallback session check to be certain
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user && mounted) {
@@ -191,7 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Email Sign Up
   const signUp = async (email: string, password: string, fullName: string, studentLevel: string) => {
     const avatarUrl = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(fullName)}`;
-    
+
     // Sign up the user in Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -242,7 +252,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Google Sign In
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (popupWin?: Window | null) => {
+    if (popupWin) {
+      oauthPopupRef.current = popupWin;
+    }
     const redirectUrl = `${window.location.origin}/auth/callback`;
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',

@@ -19,6 +19,7 @@
   "accountCreatedSuccess": "Akun berhasil dibuat! Periksa email Anda untuk verifikasi atau masuk.",
   "registrationFailed": "Pendaftaran gagal.",
   "enterEmailFirst": "Silakan masukkan alamat email Anda terlebih dahulu.",
+  "popupBlocked": "Popup diblokir. Harap izinkan popup untuk situs ini untuk masuk dengan Google.",
   "resetLinkSent": "Tautan pengaturan ulang kata sandi telah dikirim ke {{email}}.",
   "failedSendReset": "Gagal mengirim email pengaturan ulang.",
   "loggedOutSuccess": "Anda telah berhasil keluar.",

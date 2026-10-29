@@ -19,6 +19,7 @@
   "accountCreatedSuccess": "¡Cuenta creada exitosamente! Revise su correo electrónico para verificar o iniciar sesión.",
   "registrationFailed": "El registro falló.",
   "enterEmailFirst": "Por favor, introduzca primero su dirección de correo electrónico.",
+  "popupBlocked": "Ventana emergente bloqueada. Permita las ventanas emergentes para este sitio para iniciar sesión con Google.",
   "resetLinkSent": "Se ha enviado un enlace para restablecer la contraseña a {{email}}.",
   "failedSendReset": "Error al enviar el correo electrónico de restablecimiento.",
   "loggedOutSuccess": "Has cerrado sesión correctamente.",

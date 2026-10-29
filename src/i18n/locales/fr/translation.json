@@ -19,6 +19,7 @@
   "accountCreatedSuccess": "Compte créé avec succès ! Vérifiez votre e-mail pour confirmer ou connectez-vous.",
   "registrationFailed": "L'inscription a échoué.",
   "enterEmailFirst": "Veuillez d'abord entrer votre adresse e-mail.",
+  "popupBlocked": "Fenêtre contextuelle bloquée. Veuillez autoriser les fenêtres contextuelles pour ce site afin de vous connecter avec Google.",
   "resetLinkSent": "Un lien de réinitialisation du mot de passe a été envoyé à {{email}}.",
   "failedSendReset": "Échec de l'envoi de l'e-mail de réinitialisation.",
   "loggedOutSuccess": "Vous vous êtes déconnecté avec succès.",
